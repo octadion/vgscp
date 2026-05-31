@@ -1,0 +1,28 @@
+# Synthetic Gaussian theory testbed (Section 3, theory/). Runs on CPU, no torch.
+# Verifies P1 (validity) and P2 (separation) across a shortcut-strength sweep.
+defaults:
+  - common
+  - perf
+
+dataset:
+  name: synthetic_gaussian
+  n_classes: 2
+  d_core: 2                  # informative ("core") feature dims
+  d_spurious: 2              # spurious feature dims
+  d_noise: 4                 # pure-noise dims (distractors)
+  n_per_split: 8000          # samples per split (train / d_learn / d_cal / d_test)
+
+  # shortcut structure
+  core_sep: 1.2              # class separation along core feature (signal strength of f)
+  minority_frac: 0.2         # fraction whose spurious attr disagrees with label (conflict group)
+
+  # shortcut strength sweep: correlation of spurious feature with label on the majority.
+  # 0.5 = no shortcut; 1.0 = perfectly predictive on majority (strongest shortcut).
+  shortcut_strength_sweep: [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
+  shortcut_strength_default: 0.9
+  spurious_sep: 2.5          # how far the spurious feature pushes the (contaminated) classifier
+
+experiment:
+  name: synthetic_p1p2
+  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]   # >=10 seeds for synthetic
+  out_dir: results

@@ -1,0 +1,38 @@
+# Common settings shared across Phase-1 experiments.
+common:
+  conformal:
+    alpha: 0.10              # target miscoverage; coverage target = 1 - alpha = 0.90
+    base_scores: [THR, APS, RAPS]
+    raps:
+      k_reg: 1               # RAPS regularization: rank after which penalty kicks in
+      lam_reg: 0.01          # RAPS penalty strength
+  budgets: [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]   # abstention fractions b
+
+  # NCV verifiability fusion. beta tuned on D_learn; this is the search grid.
+  ncv:
+    beta: 0.5
+    beta_grid: [0.0, 0.25, 0.5, 0.75, 1.0]
+
+  # verifier-aware nonconformity score (Section 2.3), fixed on D_learn
+  verifier_aware:
+    eta: 0.0
+    zeta: 0.0
+    eta_grid: [0.0, 0.25, 0.5, 1.0]
+    zeta_grid: [0.0, 0.25, 0.5, 1.0]
+
+  ensemble:
+    n_members: 5             # M = 5 ERM models, different seeds
+  mc_dropout:
+    n_passes: 20             # K = 20 stochastic passes
+
+  eval:
+    bootstrap_resamples: 1000
+    ci: 0.95
+    significance: paired_bootstrap   # paired bootstrap vs V_full
+    multiple_comparison: holm
+
+  # split fractions (of the non-train pool); train is dataset-specific
+  splits:
+    d_learn: 0.25            # fit signal hyperparams (eta, zeta, beta, tau)
+    d_cal: 0.375             # conformal quantile ONLY
+    d_test: 0.375            # final eval

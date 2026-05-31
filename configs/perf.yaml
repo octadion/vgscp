@@ -1,0 +1,43 @@
+# Shared performance / fairness config (Section 13 of the spec).
+# Set ONCE and applied everywhere. NEVER change mid-suite — the same batch policy and
+# precision are reused for every experiment so that comparisons are fair by construction.
+perf:
+  # bf16 on Ampere+ (L4); fp16 on Turing (T4 has no bf16). "auto" resolves at runtime.
+  precision: auto            # one of: auto | bf16 | fp16 | fp32
+  use_amp: true              # torch.autocast for all forward passes
+  allow_tf32: true           # matmul / cudnn TF32 (effective on L4 / Ampere+)
+  inference_mode: true       # torch.inference_mode() for ALL eval forwards
+  channels_last: true        # for CNN backbones
+  cudnn_benchmark: true
+
+  # Batch size policy. "auto" runs the VRAM probe to find the largest batch fitting
+  # ~target_vram_frac of free memory, then FIXES it for the whole suite. Fallbacks used
+  # if probing is disabled or fails: T4 -> 256, L4 -> 512 (ResNet-50 inference).
+  batch_size: auto
+  vram_probe:
+    enabled: true
+    target_vram_frac: 0.90   # fill ~90% of free VRAM
+    min_batch: 8
+    max_batch: 1024
+    fallback_t4: 256
+    fallback_l4: 512
+    fallback_default: 128
+
+  dataloader:
+    num_workers: auto        # os.cpu_count()
+    pin_memory: true
+    persistent_workers: true
+    prefetch_factor: 4
+
+  mc_dropout:
+    batch_passes: true       # batch the K stochastic passes; never a python loop over passes
+
+  trust_knn: torch_cdist_chunked_gpu   # one of: faiss_gpu | torch_cdist_chunked_gpu
+  knn_chunk: 4096            # query chunk size for chunked cdist
+
+  empty_cache_between_stages: false     # keep allocator warm; rely on disk cache
+
+  seed_everything: true
+  deterministic: true        # deterministic where possible (may disable some cudnn kernels)
+
+  log_gpu_utilization: true  # log achieved mem + throughput per stage

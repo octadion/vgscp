@@ -1,0 +1,42 @@
+# CLEVR-Hans3 — Phase-1 PRIMARY real dataset.
+# Concepts are built in -> fastest path to a working NCV (Merlin/Morgana/Arthur over concepts).
+defaults:
+  - common
+  - perf
+
+dataset:
+  name: clevr_hans3
+  n_classes: 3
+  # Point these at your local CLEVR-Hans3 extraction. The loader expects the standard
+  # CLEVR-Hans directory layout (images/ + scenes/ json per split, class subfolders).
+  root: ${oc.env:CLEVR_HANS3_ROOT,data/raw/CLEVR-Hans3}
+  image_size: 224
+  # The "confounder" classes: in train, each class co-occurs with a confounding concept
+  # combination that is absent / flipped in the val+test "non-confounded" split.
+  # minority/conflict group = test samples where the confounding concept disagrees with class.
+  use_official_confound_split: true
+
+model:
+  backbone: resnet34         # NCV-compatible backbone for CLEVR-Hans
+  pretrained: true
+  num_epochs: 50
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  optimizer: adam
+
+ncv:
+  # Prefer official NCV code/checkpoints (Turan et al., ICML 2025, arXiv:2507.07532).
+  # Set source: official + checkpoint path; else 'reimpl' uses models/ncv_reimpl.py.
+  source: reimpl             # one of: official | reimpl
+  official_repo: ${oc.env:NCV_REPO,}        # path to cloned official repo (if source=official)
+  checkpoint: ${oc.env:NCV_CKPT,}           # path to NCV checkpoint (if available)
+  # concept space: CLEVR object attributes (shape, size, color, material) per object slot
+  concept_dim: auto          # inferred from the concept extractor
+  merlin_sparsity: 4         # |S_M|: number of concepts in Merlin's support set
+  morgana_sparsity: 4        # |S_A|: number of concepts in Morgana's misleading set
+  reject_class: true         # Arthur has an explicit reject class (bottom)
+
+experiment:
+  name: clevr_hans3_phase1
+  seeds: [0, 1, 2, 3, 4]     # >=5 seeds for real data
+  out_dir: results

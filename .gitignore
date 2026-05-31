@@ -1,0 +1,38 @@
+# caches and large artifacts
+cache/
+*.pt
+*.npy
+*.npz
+*.pth
+*.ckpt
+
+# data
+data/raw/
+data/processed/
+datasets/
+
+# results: all generated artifacts (figures, tables, runs, logs, json) are regenerable
+# from cached tensors via viz/ + scripts/, so none of it is tracked. The tracked, hand-written
+# deliverables (PHASE1_REPORT.md, RESULTS_MANIFEST.md) live at the repo root, not under results/.
+results/
+*.parquet
+
+# logs
+*.log
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# os
+.DS_Store
+Thumbs.db
+
+Phase1_REPORT.md
+RESULTS_MANIFEST.md

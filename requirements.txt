@@ -1,0 +1,29 @@
+# VG-SCP — pinned dependencies (Phase 1)
+# GPU stack (install the CUDA build matching your box: cu121 for L4/T4 cloud images).
+#   pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu121
+torch==2.3.1
+torchvision==0.18.1
+
+# Core scientific stack (the theory/ module needs ONLY these — no torch required)
+numpy==1.26.4
+scipy==1.13.1
+pandas==2.2.2
+pyarrow==16.1.0
+scikit-learn==1.5.0
+
+# Config / logging / progress
+omegaconf==2.3.0
+hydra-core==1.3.2
+tqdm==4.66.4
+PyYAML==6.0.1
+gitpython==3.1.43
+
+# Plotting / tables
+matplotlib==3.9.0
+
+# kNN for trust score (GPU). Optional: falls back to chunked torch.cdist on GPU if absent.
+#   pip install faiss-gpu-cu12   # (or faiss-gpu via conda)
+# faiss-gpu-cu12==1.8.0
+
+# Testing
+pytest==8.2.2
