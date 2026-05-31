@@ -21,6 +21,10 @@ gitpython==3.1.43
 # Plotting / tables
 matplotlib==3.9.0
 
+# Frozen CLIP concept-bottleneck (Waterbirds path). Pulls Pillow/ftfy/regex.
+open_clip_torch==2.24.0
+Pillow==10.3.0
+
 # kNN for trust score (GPU). Optional: falls back to chunked torch.cdist on GPU if absent.
 #   pip install faiss-gpu-cu12   # (or faiss-gpu via conda)
 # faiss-gpu-cu12==1.8.0

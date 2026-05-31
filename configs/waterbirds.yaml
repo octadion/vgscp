@@ -1,0 +1,116 @@
+# Waterbirds + frozen CLIP concept-bottleneck (critical-path kill-switch testbed).
+# Pivot from CLEVR-Hans (oracle scene-graph concepts) to a LEARNED, FROZEN CLIP concept space:
+# trivially available (open_clip), genuinely imperfect, and plausibly itself contaminated by the
+# background shortcut -> a real test with an uncertain outcome, not an oracle.
+defaults:
+  - common
+  - perf
+
+dataset:
+  name: waterbirds
+  # Standard Waterbirds release (GroupDRO/WILDS). Env-overridable; on Colab point at Drive.
+  root: ${oc.env:WATERBIRDS_ROOT,data/raw/waterbirds}
+  download: true                # fetch + extract the tarball if metadata.csv is absent
+  url: https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz
+  image_size: 224
+  n_classes: 2                  # landbird=0 / waterbird=1
+  # group_id = 2*y + place ; place: land=0 / water=1 ; minority/conflict = (y != place)
+
+concept_source: clip            # 'clip' (frozen CLIP bottleneck) | 'gt' (legacy CLEVR path)
+
+clip:
+  model_name: ViT-B-32          # open_clip arch; ViT-B-16 for a bit more signal (slower)
+  pretrained: laion2b_s34b_b79k # open_clip pretrained tag (frozen, zero-shot)
+  standardize: true             # per-concept standardization, stats fit on TRAIN ONLY
+  temperature_softmax: false    # if true, softmax cosine scores at this temperature instead
+  temperature: 0.01
+  # A-PRIORI concept prompt bank — fixed BEFORE seeing results, NOT cherry-picked to win.
+  # Mix of bird parts/attributes, background/scene terms, and neutral distractors.
+  concept_bank:
+    # --- bird parts / attributes (causal-ish; should help predict bird type) ---
+    - "a bird with a long pointed beak"
+    - "a bird with a short curved beak"
+    - "a bird with a hooked beak"
+    - "a bird with webbed feet"
+    - "a bird with clawed talons"
+    - "a bird with long thin legs"
+    - "a bird with colorful plumage"
+    - "a bird with brown feathers"
+    - "a bird with white feathers"
+    - "a bird with black feathers"
+    - "a bird with grey feathers"
+    - "a bird with a long neck"
+    - "a bird with a short neck"
+    - "a bird with broad wings"
+    - "a bird with narrow pointed wings"
+    - "a bird with a forked tail"
+    - "a small songbird"
+    - "a large waterfowl"
+    - "a duck"
+    - "a goose"
+    - "a gull"
+    - "a tern"
+    - "a sparrow"
+    - "a warbler"
+    - "a heron"
+    - "a wading bird"
+    - "a perching bird"
+    - "a swimming bird"
+    # --- background / scene (spurious; should predict the place shortcut) ---
+    - "a photo taken near water"
+    - "an ocean in the background"
+    - "a lake in the background"
+    - "a river in the background"
+    - "a beach"
+    - "the open sea"
+    - "waves and water"
+    - "a forest in the background"
+    - "trees in the background"
+    - "a bamboo forest"
+    - "green grass and foliage"
+    - "dry land"
+    - "a sky background"
+    - "clouds in the sky"
+    - "branches of a tree"
+    - "reeds and marsh"
+    # --- neutral distractors (should be uninformative) ---
+    - "a blurry photo"
+    - "a black and white photo"
+    - "a close-up photo"
+    - "a brightly lit photo"
+    - "a man-made object"
+    - "a vehicle"
+    - "a building"
+    - "an indoor scene"
+    - "a person"
+    - "a piece of text"
+
+model:
+  backbone: resnet50            # ERM f; pretrained, SHORT finetune (shortcut learns fast)
+  pretrained: true
+  num_epochs: 5                 # short epoch budget (NOT 50); triage kill-switch
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  optimizer: adam
+  dropout_p: 0.2                # small dropout head -> MC-dropout reuses the same weights
+
+ncv:
+  source: reimpl                # PVG verifier over the CONTINUOUS CLIP concept vectors
+  merlin_sparsity: 6
+  morgana_sparsity: 6
+  reject_class: true
+  epochs: 30
+
+ensemble:
+  n_members: 3                  # right-sized for the disagreement baseline (not 5)
+
+probe:
+  max_per_split: 400            # Phase-A0: a few hundred images per split
+  knn_k: 15
+  train_tiny_f: true            # train a tiny ERM f for the rough separation preview
+  tiny_f_epochs: 3
+
+experiment:
+  name: waterbirds_clip
+  seeds: [0]                    # 1 seed for the probe; 1-2 for the kill-switch (post-GO)
+  out_dir: results
