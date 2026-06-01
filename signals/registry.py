@@ -47,6 +47,9 @@ def build_signals(
     train_concepts: Optional[np.ndarray] = None,
     query_concepts: Optional[np.ndarray] = None,
     concept_probe_kind: str = "logistic",
+    verifier=None,
+    clean_mask: Optional[np.ndarray] = None,
+    gap_lam: float = 0.0,
 ) -> dict:
     """Return {signal_name: np.ndarray(N,)} for all available signals (higher = more reliable).
 
@@ -80,4 +83,19 @@ def build_signals(
         nv = ncv.compute_ncv_signals(pA_given_SM, pA_given_SA, y_pred, beta, reject_prob)
         out.update({k: v for k, v in nv.items() if k != "R_adv"})
         out["_R_adv"] = nv["R_adv"]  # underscore = not a reliability signal, kept for logging
+
+    # counterfactual support-gap signals (kill-switch for Arah 2). Needs a trained verifier + the
+    # rho-derived clean_mask + the query concepts. support_full reuses the full-Merlin V_comp when
+    # already computed above. Does NOT touch any existing signal.
+    if verifier is not None and clean_mask is not None and query_concepts is not None:
+        from . import spurious_gap
+
+        support_full = out.get("V_comp")  # full-bank Merlin completeness, if available
+        gs = spurious_gap.gap_signals(verifier, query_concepts, y_pred, clean_mask,
+                                      lam=gap_lam, support_full=support_full)
+        out["support_clean"] = gs["support_clean"]
+        out["V_gap"] = gs["V_gap"]
+        out["V_gap_pure"] = gs["V_gap_pure"]
+        out["_support_full"] = gs["_support_full"]
+        out["_gap"] = gs["_gap"]
     return out

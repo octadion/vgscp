@@ -166,16 +166,26 @@ class ReimplNCV(VerifierAdapter):
         return torch.softmax(self._arthur_logits(concepts_t, mask_t), dim=1)
 
     # ---- greedy prover selection (used in BOTH training and inference) ----
-    def _greedy_select(self, concepts_t, sparsity, maximize_label):
+    def _greedy_select(self, concepts_t, sparsity, maximize_label, allowed_mask=None):
         """Greedily grow a sparse mask to MAXIMIZE Arthur's prob of ``maximize_label``.
 
         Vectorized over samples; loops over the ``d`` candidate concepts per greedy step. Runs
         under inference_mode (no grad) — provers select against a frozen snapshot of Arthur.
         Returns (mask (n,d) float, chosen list[list[int]]).
+
+        ``allowed_mask`` (optional, (d,) bool/array): when given, Merlin may ONLY pick concept dims
+        where it is True (the counterfactual support-gap restriction). ``allowed_mask=None`` is the
+        default and is byte-identical to the original behavior (the masking branch below is only
+        ever entered when a mask is supplied).
         """
         import torch
 
         n, d = concepts_t.shape
+        allowed = None
+        if allowed_mask is not None:
+            allowed = torch.as_tensor(np.asarray(allowed_mask, dtype=bool), device=concepts_t.device)
+            # never select more dims than are allowed (e.g. a tiny clean set)
+            sparsity = min(int(sparsity), int(allowed.sum().item()))
         mask = torch.zeros(n, d, device=concepts_t.device)
         chosen = [[] for _ in range(n)]
         rows = torch.arange(n, device=concepts_t.device)
@@ -183,6 +193,8 @@ class ReimplNCV(VerifierAdapter):
             best_gain = torch.full((n,), -1e9, device=concepts_t.device)
             best_j = torch.zeros(n, dtype=torch.long, device=concepts_t.device)
             for j in range(d):
+                if allowed is not None and not bool(allowed[j]):
+                    continue  # disallowed concept dim is never selectable
                 trial = mask.clone()
                 trial[:, j] = 1.0
                 p = self._arthur_probs(concepts_t, trial)[rows, maximize_label]
@@ -315,6 +327,25 @@ class ReimplNCV(VerifierAdapter):
             morgana_concepts=sel_A,
             pA_given_SM_all=pA_SM_np,
         )
+
+    def merlin_completeness(self, concepts: np.ndarray, y_pred: np.ndarray,
+                            allowed_mask: Optional[np.ndarray] = None) -> np.ndarray:
+        """p_A(y_pred | S_M), where Merlin greedily selects its support set toward ``y_pred`` but
+        may ONLY pick concept dims where ``allowed_mask`` is True.
+
+        ``allowed_mask=None`` reproduces the full-bank Merlin completeness (== ``V_comp`` from
+        ``predict``). Restricting to the rho-derived clean mask gives ``support_clean`` (the
+        counterfactual support with the spurious concepts removed). Returns (N,)."""
+        import torch
+
+        assert self.arthur is not None, "train() Arthur before merlin_completeness()"
+        x = torch.as_tensor(self._standardize_np(concepts), dtype=torch.float32, device=self.device)
+        yp = torch.as_tensor(np.asarray(y_pred, dtype=np.int64), dtype=torch.long, device=self.device)
+        with torch.inference_mode():
+            mask_M, _ = self._greedy_select(x, self.merlin_sparsity, yp, allowed_mask=allowed_mask)
+            pA_SM = self._arthur_probs(x, mask_M)[:, : self._n_classes]
+        rows = np.arange(x.shape[0])
+        return pA_SM.detach().cpu().numpy()[rows, np.asarray(y_pred, dtype=np.int64)]
 
     def intrinsic_metrics(self, concepts: np.ndarray, y_true: np.ndarray) -> dict:
         """Sanity diagnostics. completeness / merlin_acc = Arthur acc when Merlin pushes the TRUE
