@@ -1,0 +1,43 @@
+# Waterbirds + CUB-200-2011 PER-IMAGE attribute concept space (premise-1 probe only).
+# Pivot from frozen-CLIP (RED: background-dominated, minority y-AUROC ~0.49, place ~0.97) to the
+# dataset's own per-image MTurk bird attributes: 312 frozen annotations per image that describe
+# the BIRD and are independent of the pasted background. CPU-only (logistic regression over a
+# 312-dim attribute matrix); no GPU, no torch, no CLIP.
+#
+# HONESTY: per-image attributes ONLY. Class-level / majority-vote attributes
+# (class_attribute_labels_continuous.txt) are FORBIDDEN — they are a deterministic function of the
+# label = the oracle trap. The bird class label is never used to build concepts.
+defaults:
+  - common
+  - perf
+
+dataset:
+  name: waterbirds
+  # Reuse the standard Waterbirds extraction (same loader as the CLIP probe). Env-overridable.
+  root: ${oc.env:WATERBIRDS_ROOT,data/raw/waterbirds}
+  download: true
+  url: https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz
+  image_size: 224
+  n_classes: 2                  # landbird=0 / waterbird=1
+  # group_id = 2*y + place ; place: land=0 / water=1 ; minority/conflict = (y != place)
+
+concept_source: cub_attributes  # per-image CUB attributes (NOT clip, NOT gt)
+
+cub:
+  # CUB-200-2011 (Waterbirds is built from it). ~1.1 GB one-time download; only the attribute txt
+  # files are read after extraction. url is configurable so a mirror can be swapped.
+  root: ${oc.env:CUB_ROOT,data/raw/cub}
+  download: true
+  url: https://data.caltech.edu/records/65de6-vp158/files/CUB_200_2011.tgz
+  # GDrive fallback id: 1hbzc_P1FuxMkcabkgn9ZKinBwW683j45 ; tgz md5 97eceeb196236b17998738112f37df78
+  use_certainty: false          # default: binary is_present (noisy per-image MTurk labels — honest)
+  standardize: false            # binary attrs: standardization optional (try true as a variant)
+  min_coverage: 0.99            # assert >=99% of Waterbirds images match a CUB attribute vector
+
+probe:
+  max_per_split: 1000           # premise-1 probe subsample (1 seed); cheap on CPU
+
+experiment:
+  name: waterbirds_cub
+  seeds: [0]                    # 1 seed for the probe
+  out_dir: results
