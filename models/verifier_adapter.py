@@ -65,35 +65,66 @@ class VerifierAdapter(abc.ABC):
 # Reimplementation: minimal Merlin / Morgana / Arthur over concept encodings
 # --------------------------------------------------------------------------------------
 class ReimplNCV(VerifierAdapter):
-    """Minimal NCV reimplementation (used when official code/checkpoints are unavailable).
+    """Faithful minimal Prover-Verifier Game over CONTINUOUS concept vectors (task Section 3).
 
-    Arthur is a small MLP A(masked_concepts) -> logits over C (+1 reject). Merlin greedily
-    selects a sparse concept subset maximizing p_A(yhat|S); Morgana greedily selects a subset
-    maximizing p_A(y'|S) for the best wrong label y'. Arthur is trained via the Prover-Verifier
-    Game: correct under Merlin's helpful sets, reject under Morgana's misleading sets.
+    Arthur is a small MLP ``A([concepts (.) mask | mask]) -> logits`` over C classes (+1 reject
+    ``bottom``). The provers select sparse concept subsets *using the current Arthur* (greedy):
 
-    The heavy training lives in ``train`` (torch). ``predict`` runs the cached greedy selection
-    + Arthur forward passes and returns numpy arrays for caching.
+      - **Merlin** (cooperative): picks a subset S of size <= merlin_sparsity MAXIMIZING
+        ``p_A(y_target | S)`` (helpful evidence for the target label).
+      - **Morgana** (adversarial): picks a subset S MAXIMIZING ``p_A(y' | S)`` for the best WRONG
+        label y' (misleading evidence).
+
+    Training is the actual alternating game (NOT random masks): every ``prover_refresh`` epochs
+    the greedy Merlin/Morgana selections are recomputed from the current Arthur, then Arthur is
+    updated to (a) be CORRECT under Merlin's helpful set (toward the TRUE label) and (b) REJECT
+    under Morgana's misleading set. With ``morgana_enabled=False`` the adversarial branch is
+    dropped entirely (Arthur is only taught to be correct under Merlin) — the required ablation,
+    in which case ``predict`` returns ``S_A = S_M`` and zero reject so ``V_sound`` carries no
+    adversarial information (callers fix ``beta=1`` so ``V_full == V_comp``).
+
+    Concept inputs are standardized with TRAIN-only statistics fit in ``train`` and reapplied in
+    ``predict`` (no leakage). The reference design is ZIB-IOL/merlin-arthur-classifiers
+    (Waeldchen et al.) / Turan et al. (arXiv:2507.07532).
     """
 
     def __init__(
         self,
         concept_dim: int,
         n_classes: int,
-        merlin_sparsity: int = 4,
-        morgana_sparsity: int = 4,
+        merlin_sparsity: int = 6,
+        morgana_sparsity: int = 6,
         reject_class: bool = True,
         hidden: int = 128,
         device: str = "cuda",
+        morgana_enabled: bool = True,
+        epochs: int = 30,
+        lr: float = 1e-3,
+        batch_size: int = 256,
+        prover_refresh: int = 1,
+        morgana_weight: float = 1.0,
+        n_train_max: Optional[int] = 4000,
+        standardize: bool = True,
     ):
         self.concept_dim = concept_dim
         self._n_classes = n_classes
         self.merlin_sparsity = merlin_sparsity
         self.morgana_sparsity = morgana_sparsity
-        self._has_reject = reject_class
+        # a reject head is only meaningful when Morgana is in play
+        self._has_reject = reject_class and morgana_enabled
         self.hidden = hidden
         self.device = device
+        self.morgana_enabled = morgana_enabled
+        self.epochs = epochs
+        self.lr = lr
+        self.batch_size = batch_size
+        self.prover_refresh = max(1, prover_refresh)
+        self.morgana_weight = morgana_weight
+        self.n_train_max = n_train_max
+        self.standardize = standardize
         self.arthur = None  # torch module, built in train()
+        self._mean = None    # (D,) TRAIN concept mean (standardizer)
+        self._std = None     # (D,) TRAIN concept std
 
     @property
     def n_classes(self) -> int:
@@ -117,70 +148,30 @@ class ReimplNCV(VerifierAdapter):
             nn.Linear(self.hidden, out_dim),
         )
 
-    def _arthur_probs(self, concepts_t, mask_t):
+    def _standardize_np(self, concepts: np.ndarray) -> np.ndarray:
+        if not self.standardize or self._mean is None:
+            return np.asarray(concepts, dtype=np.float32)
+        return ((np.asarray(concepts, dtype=np.float32) - self._mean[None, :])
+                / (self._std[None, :] + 1e-8)).astype(np.float32)
+
+    def _arthur_logits(self, concepts_t, mask_t):
         import torch
 
         inp = torch.cat([concepts_t * mask_t, mask_t], dim=1)
-        logits = self.arthur(inp)
-        return torch.softmax(logits, dim=1)
+        return self.arthur(inp)
 
-    def train(self, concepts: np.ndarray, y: np.ndarray, perf_ctx, epochs: int = 30,
-              lr: float = 1e-3, n_mask_samples: int = 4):
-        """Prover-Verifier Game training of Arthur (and implicit greedy provers).
-
-        Each step: sample random sparse masks (proxy provers early in training), plus the
-        current greedy Merlin / Morgana masks; train Arthur to (a) predict y under helpful
-        masks, (b) predict reject under misleading masks. This is the standard NCV objective
-        rebuilt minimally; swap in the official trainer for the paper-grade verifier.
-        """
-        import torch
-        import torch.nn as nn
-
-        self.arthur = self._build_arthur().to(self.device)
-        opt = torch.optim.Adam(self.arthur.parameters(), lr=lr)
-        C = self._concept_dim_safe()
-        x = torch.as_tensor(concepts, dtype=torch.float32, device=self.device)
-        yt = torch.as_tensor(y, dtype=torch.long, device=self.device)
-        reject_idx = self._n_classes  # label for reject
-        n = x.shape[0]
-        for ep in range(epochs):
-            perm = torch.randperm(n, device=self.device)
-            x, yt = x[perm], yt[perm]
-            # sample helpful (Merlin-like) masks: keep a sparse subset; train -> y
-            for _ in range(n_mask_samples):
-                mask = self._random_sparse_mask(n, self.merlin_sparsity)
-                p = self._arthur_probs(x, mask)
-                loss_help = nn.functional.nll_loss(torch.log(p + 1e-9), yt)
-                # misleading (Morgana-like) masks: train -> reject (if enabled) else uniform
-                mask_adv = self._random_sparse_mask(n, self.morgana_sparsity)
-                p_adv = self._arthur_probs(x, mask_adv)
-                if self._has_reject:
-                    target = torch.full((n,), reject_idx, device=self.device, dtype=torch.long)
-                    loss_adv = nn.functional.nll_loss(torch.log(p_adv + 1e-9), target)
-                else:
-                    loss_adv = -(-(p_adv * torch.log(p_adv + 1e-9)).sum(1)).mean()
-                loss = loss_help + 0.5 * loss_adv
-                opt.zero_grad(set_to_none=True)
-                loss.backward()
-                opt.step()
-        return self
-
-    def _concept_dim_safe(self):
-        return self.concept_dim
-
-    def _random_sparse_mask(self, n, k):
+    def _arthur_probs(self, concepts_t, mask_t):
         import torch
 
-        mask = torch.zeros(n, self.concept_dim, device=self.device)
-        idx = torch.argsort(torch.rand(n, self.concept_dim, device=self.device), dim=1)[:, :k]
-        mask.scatter_(1, idx, 1.0)
-        return mask
+        return torch.softmax(self._arthur_logits(concepts_t, mask_t), dim=1)
 
-    # ---- greedy prover selection at inference ----
-    def _greedy_select(self, concepts_t, target_labels, sparsity, maximize_label):
-        """Greedily add concepts to maximize Arthur's prob of ``maximize_label``.
+    # ---- greedy prover selection (used in BOTH training and inference) ----
+    def _greedy_select(self, concepts_t, sparsity, maximize_label):
+        """Greedily grow a sparse mask to MAXIMIZE Arthur's prob of ``maximize_label``.
 
-        Returns (mask, chosen_indices). target_labels guides which label to push.
+        Vectorized over samples; loops over the ``d`` candidate concepts per greedy step. Runs
+        under inference_mode (no grad) — provers select against a frozen snapshot of Arthur.
+        Returns (mask (n,d) float, chosen list[list[int]]).
         """
         import torch
 
@@ -188,15 +179,14 @@ class ReimplNCV(VerifierAdapter):
         mask = torch.zeros(n, d, device=concepts_t.device)
         chosen = [[] for _ in range(n)]
         rows = torch.arange(n, device=concepts_t.device)
-        for _ in range(sparsity):
+        for _ in range(int(sparsity)):
             best_gain = torch.full((n,), -1e9, device=concepts_t.device)
             best_j = torch.zeros(n, dtype=torch.long, device=concepts_t.device)
             for j in range(d):
                 trial = mask.clone()
                 trial[:, j] = 1.0
                 p = self._arthur_probs(concepts_t, trial)[rows, maximize_label]
-                # don't reselect already-chosen concepts
-                already = mask[:, j] > 0
+                already = mask[:, j] > 0  # don't reselect a chosen concept
                 gain = torch.where(already, torch.full_like(p, -1e9), p)
                 upd = gain > best_gain
                 best_gain = torch.where(upd, gain, best_gain)
@@ -206,31 +196,117 @@ class ReimplNCV(VerifierAdapter):
                 chosen[i].append(int(best_j[i].item()))
         return mask, chosen
 
+    def _best_wrong_label(self, concepts_t, y_avoid):
+        """Best wrong label for each sample = argmax_{y != y_avoid} p_A(y | full concept set)."""
+        import torch
+
+        rows = torch.arange(concepts_t.shape[0], device=concepts_t.device)
+        with torch.inference_mode():
+            pf = self._arthur_probs(concepts_t, torch.ones_like(concepts_t))[:, : self._n_classes]
+        wrong = pf.clone()
+        wrong[rows, y_avoid] = -1.0
+        return wrong.argmax(dim=1)
+
+    def train(self, concepts: np.ndarray, y: np.ndarray, perf_ctx=None, epochs: Optional[int] = None,
+              lr: Optional[float] = None, seed: int = 0):
+        """Alternating Prover-Verifier-Game training of Arthur (Section 3).
+
+        Loop: (1) freeze Arthur, recompute greedy Merlin sets toward the TRUE label and (if
+        enabled) Morgana sets toward the best wrong label; (2) SGD Arthur to predict y under
+        Merlin's sets and reject under Morgana's. ``perf_ctx`` is accepted for call-site symmetry
+        with the rest of the pipeline but unused (this is a tiny CPU/GPU MLP).
+        """
+        import torch
+        import torch.nn as nn
+
+        epochs = int(epochs if epochs is not None else self.epochs)
+        lr = float(lr if lr is not None else self.lr)
+
+        concepts = np.asarray(concepts, dtype=np.float32)
+        y = np.asarray(y, dtype=np.int64)
+
+        # TRAIN-only standardizer (fit here, reapplied in predict — no leakage).
+        if self.standardize:
+            self._mean = concepts.mean(axis=0)
+            self._std = concepts.std(axis=0)
+
+        # optional class-stratified subsample to bound the (one-time) greedy training cost
+        if self.n_train_max is not None and concepts.shape[0] > self.n_train_max:
+            rng = np.random.default_rng(seed)
+            classes = np.unique(y)
+            per = max(1, self.n_train_max // len(classes))
+            keep = np.concatenate([
+                rng.permutation(np.where(y == c)[0])[:per] for c in classes
+            ])
+            rng.shuffle(keep)
+            concepts, y = concepts[keep], y[keep]
+
+        cstd = self._standardize_np(concepts)
+        x = torch.as_tensor(cstd, dtype=torch.float32, device=self.device)
+        yt = torch.as_tensor(y, dtype=torch.long, device=self.device)
+        n = x.shape[0]
+        reject_idx = self._n_classes
+        rows = torch.arange(n, device=self.device)
+
+        self.arthur = self._build_arthur().to(self.device)
+        opt = torch.optim.Adam(self.arthur.parameters(), lr=lr)
+        crit = nn.CrossEntropyLoss()
+
+        mask_M = None
+        mask_A = None
+        for ep in range(epochs):
+            if ep % self.prover_refresh == 0:
+                self.arthur.eval()
+                with torch.inference_mode():
+                    # Merlin: cooperative, push the TRUE label
+                    mask_M, _ = self._greedy_select(x, self.merlin_sparsity, yt)
+                    if self.morgana_enabled:
+                        y_adv = self._best_wrong_label(x, yt)
+                        mask_A, _ = self._greedy_select(x, self.morgana_sparsity, y_adv)
+            self.arthur.train()
+            perm = torch.randperm(n, device=self.device)
+            for i in range(0, n, self.batch_size):
+                idx = perm[i : i + self.batch_size]
+                logits_M = self._arthur_logits(x[idx], mask_M[idx])
+                loss = crit(logits_M, yt[idx])
+                if self.morgana_enabled:
+                    logits_A = self._arthur_logits(x[idx], mask_A[idx])
+                    tgt = torch.full((idx.shape[0],), reject_idx, device=self.device,
+                                     dtype=torch.long)
+                    loss = loss + self.morgana_weight * crit(logits_A, tgt)
+                opt.zero_grad(set_to_none=True)
+                loss.backward()
+                opt.step()
+        self.arthur.eval()
+        return self
+
     def predict(self, concepts: np.ndarray, y_pred: np.ndarray) -> VerifierOutputs:
         import torch
 
         assert self.arthur is not None, "train() Arthur before predict()"
-        x = torch.as_tensor(concepts, dtype=torch.float32, device=self.device)
-        yp = torch.as_tensor(y_pred, dtype=torch.long, device=self.device)
+        x = torch.as_tensor(self._standardize_np(concepts), dtype=torch.float32, device=self.device)
+        yp = torch.as_tensor(np.asarray(y_pred, dtype=np.int64), dtype=torch.long, device=self.device)
         rows = torch.arange(x.shape[0], device=self.device)
 
         with torch.inference_mode():
-            # Merlin: cooperative -> push yhat
-            mask_M, sel_M = self._greedy_select(x, yp, self.merlin_sparsity, yp)
+            # Merlin: cooperative -> push f's predicted label yhat
+            mask_M, sel_M = self._greedy_select(x, self.merlin_sparsity, yp)
             pA_SM = self._arthur_probs(x, mask_M)
-            # Morgana: adversarial -> push the best wrong label
-            pA_full = self._arthur_probs(x, torch.ones_like(x))
-            wrong = pA_full[:, : self._n_classes].clone()
-            wrong[rows, yp] = -1.0
-            y_adv = wrong.argmax(dim=1)
-            mask_A, sel_A = self._greedy_select(x, y_adv, self.morgana_sparsity, y_adv)
-            pA_SA = self._arthur_probs(x, mask_A)
+            if self.morgana_enabled:
+                # Morgana: adversarial -> push the best wrong label (!= yhat)
+                y_adv = self._best_wrong_label(x, yp)
+                mask_A, sel_A = self._greedy_select(x, self.morgana_sparsity, y_adv)
+                pA_SA = self._arthur_probs(x, mask_A)
+            else:
+                # ablation: no adversary -> S_A = S_M, no reject signal
+                mask_A, sel_A, pA_SA = mask_M, sel_M, pA_SM
 
         pA_SM_np = pA_SM[:, : self._n_classes].detach().cpu().numpy()
         pA_SA_np = pA_SA[:, : self._n_classes].detach().cpu().numpy()
-        reject = (
-            pA_SA[:, self._n_classes].detach().cpu().numpy() if self._has_reject else None
-        )
+        if self._has_reject and self.morgana_enabled:
+            reject = pA_SA[:, self._n_classes].detach().cpu().numpy()
+        else:
+            reject = np.zeros(pA_SA_np.shape[0], dtype=np.float32)
         return VerifierOutputs(
             pA_given_SM=pA_SM_np,
             pA_given_SA=pA_SA_np,
@@ -241,13 +317,21 @@ class ReimplNCV(VerifierAdapter):
         )
 
     def intrinsic_metrics(self, concepts: np.ndarray, y_true: np.ndarray) -> dict:
-        """Completeness = Arthur acc given Merlin sets; soundness = 1 - acc-of-being-fooled
-        by Morgana sets (higher = sounder)."""
+        """Sanity diagnostics. completeness / merlin_acc = Arthur acc when Merlin pushes the TRUE
+        label; morgana_acc = Arthur acc under Morgana's misleading set (lower = the game bites);
+        soundness = 1 - rate Arthur is FOOLED into a wrong class under Morgana."""
+        y_true = np.asarray(y_true, dtype=np.int64)
         out = self.predict(concepts, y_true)
-        comp = float((out.pA_given_SM.argmax(1) == y_true).mean())
-        fooled = (out.pA_given_SA.argmax(1) != y_true).mean()
-        sound = float(1.0 - fooled)
-        return {"completeness": comp, "soundness": sound}
+        merlin_acc = float((out.pA_given_SM.argmax(1) == y_true).mean())
+        morgana_acc = float((out.pA_given_SA.argmax(1) == y_true).mean())
+        fooled = float((out.pA_given_SA.argmax(1) != y_true).mean())
+        return {
+            "completeness": merlin_acc,
+            "soundness": float(1.0 - fooled),
+            "merlin_acc": merlin_acc,
+            "morgana_acc": morgana_acc,
+            "morgana_enabled": bool(self.morgana_enabled),
+        }
 
 
 # --------------------------------------------------------------------------------------
@@ -312,8 +396,17 @@ def build_verifier(ncv_cfg: dict, concept_dim: int, n_classes: int, device: str 
     return ReimplNCV(
         concept_dim=concept_dim,
         n_classes=n_classes,
-        merlin_sparsity=ncv_cfg.get("merlin_sparsity", 4),
-        morgana_sparsity=ncv_cfg.get("morgana_sparsity", 4),
+        merlin_sparsity=ncv_cfg.get("merlin_sparsity", 6),
+        morgana_sparsity=ncv_cfg.get("morgana_sparsity", 6),
         reject_class=ncv_cfg.get("reject_class", True),
+        hidden=ncv_cfg.get("hidden", 128),
         device=device,
+        morgana_enabled=str(ncv_cfg.get("morgana", "on")).lower() in ("on", "true", "1"),
+        epochs=ncv_cfg.get("epochs", 30),
+        lr=ncv_cfg.get("lr", 1e-3),
+        batch_size=ncv_cfg.get("batch_size", 256),
+        prover_refresh=ncv_cfg.get("prover_refresh", 1),
+        morgana_weight=ncv_cfg.get("morgana_weight", 1.0),
+        n_train_max=ncv_cfg.get("n_train_max", 4000),
+        standardize=ncv_cfg.get("standardize", True),
     )

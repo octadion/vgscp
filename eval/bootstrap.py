@@ -82,6 +82,10 @@ def paired_bootstrap_test(
         db = metric_fn(*[a[idx] for a in arrays_b])
         deltas[b] = da - db
     deltas = deltas[np.isfinite(deltas)]
+    if len(deltas) == 0:
+        # degenerate metric on every resample (e.g. a one-class subgroup -> AUROC undefined)
+        return PairedTest(name_a, name_b, float(point), float("nan"), float("nan"),
+                          float("nan"), "tie")
     alpha = 1.0 - ci
     lo = float(np.quantile(deltas, alpha / 2))
     hi = float(np.quantile(deltas, 1 - alpha / 2))

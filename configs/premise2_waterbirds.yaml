@@ -1,0 +1,104 @@
+# Premise-2 gate: does ADVERSARIAL VERIFIABILITY (Morgana) add value over a plain concept probe?
+#
+# Concept-space CONTRAST on the SAME Waterbirds f:
+#   A. attributes_only -> 312 CUB per-image MTurk attributes (clean/causal). Expected: V_comp wins
+#      via concept-bottleneck cleanliness, Morgana ~idle (control).
+#   B. mixed           -> [312 CUB attributes | K frozen-CLIP scene/background concepts]. The CLIP
+#      scene concepts are the SPURIOUS concepts (the ones that were ~0.97 AUROC for `place`). This
+#      is the make-or-break setting: the adversary now has a spurious concept to exploit.
+#
+# GPU once (ERM ResNet-50 + CLIP scene concepts), then everything CPU/vectorized.
+# HONESTY: per-image CUB attributes ONLY (no class-level oracle); a-priori CLIP scene prompts
+# fixed BEFORE seeing results; do NOT tune the bank/masks to manufacture a Morgana win.
+defaults:
+  - common
+  - perf
+
+dataset:
+  name: waterbirds
+  root: ${oc.env:WATERBIRDS_ROOT,data/raw/waterbirds}
+  download: true
+  url: https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz
+  image_size: 224
+  n_classes: 2                  # landbird=0 / waterbird=1
+  # group_id = 2*y + place ; place: land=0 / water=1 ; minority/conflict = (y != place)
+
+# The two concept spaces contrasted (A is the cleanliness control; B is the decisive test).
+concept_spaces: [attributes_only, mixed]
+
+cub:
+  root: ${oc.env:CUB_ROOT,data/raw/cub}
+  download: true
+  url: https://data.caltech.edu/records/65de6-vp158/files/CUB_200_2011.tgz
+  use_certainty: false          # binary is_present (noisy per-image MTurk labels — honest)
+  min_coverage: 0.99            # assert >=99% of Waterbirds images match a CUB attribute vector
+
+clip:
+  model_name: ViT-B-32
+  pretrained: laion2b_s34b_b79k
+  temperature_softmax: false
+  temperature: 0.01
+  # A-PRIORI scene/background prompt subset = the SPURIOUS concepts for the mixed space.
+  # These are exactly the background/scene prompts from configs/waterbirds.yaml that scored
+  # ~0.97 AUROC for `place` in the CLIP probe. Fixed before seeing premise-2 numbers.
+  scene_concept_bank:
+    - "a photo taken near water"
+    - "an ocean in the background"
+    - "a lake in the background"
+    - "a river in the background"
+    - "a beach"
+    - "the open sea"
+    - "waves and water"
+    - "a forest in the background"
+    - "trees in the background"
+    - "a bamboo forest"
+    - "green grass and foliage"
+    - "dry land"
+    - "a sky background"
+    - "clouds in the sky"
+    - "branches of a tree"
+    - "reeds and marsh"
+
+# Concept standardization is applied ONCE on TRAIN (z-score, train-only stats) and reused for the
+# verifier, probe_concept and trust_concept (no leakage).
+concepts:
+  standardize: true
+
+model:
+  backbone: resnet50            # real ERM f; pretrained backbone + SHORT finetune
+  pretrained: true
+  num_epochs: 5                 # short — the background shortcut is learned fast
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  optimizer: adam
+  dropout_p: 0.2                # small dropout head -> MC-dropout reuses the same weights
+
+ncv:
+  source: reimpl                # faithful PVG over the CONTINUOUS concept vectors
+  morgana: on                   # primary verifier; a morgana=off verifier is also trained for the ablation
+  merlin_sparsity: 6
+  morgana_sparsity: 6
+  reject_class: true
+  hidden: 128
+  epochs: 30
+  lr: 1.0e-3
+  batch_size: 256
+  prover_refresh: 1             # recompute greedy provers every epoch (alternating game)
+  morgana_weight: 1.0
+  n_train_max: 4000             # cap verifier training set (bounds the one-time greedy cost)
+  standardize: false            # concepts are already TRAIN-standardized upstream
+
+ensemble:
+  n_members: 3                  # right-sized for the disagreement baseline (2-3, not 5)
+
+mc_dropout:
+  n_passes: 20
+
+probe:
+  max_per_split: null           # use the full splits for the gate (set an int to subsample)
+  concept_probe_kind: logistic  # plain concept->y probe for probe_concept (logistic|mlp)
+
+experiment:
+  name: premise2_waterbirds
+  seeds: [0]                    # 1 seed for the gate (multi-seed CIs are a later phase)
+  out_dir: results

@@ -33,6 +33,11 @@ from .bootstrap import (
 # The two baselines the kill-switch is gated on (NOT just conf_msp).
 KILL_BASELINES = ["trust", "ensemble_disagree"]
 
+# Premise-2: the concept-space controls V must beat to claim the adversarial-verifiability
+# contribution (beyond "use a concept bottleneck"), plus the f-feature baselines.
+PREMISE2_CONTROLS = ["probe_concept", "trust_concept"]
+PREMISE2_FBASELINES = ["trust", "ensemble_disagree"]
+
 
 @dataclass
 class SignalReport:
@@ -114,6 +119,119 @@ def evaluate_signals(
             )
         reports[name] = rep
     return reports
+
+
+@dataclass
+class Premise2Verdict:
+    label: str                       # NOVELTY-VALIDATED | PARTIAL | NULL | INCONCLUSIVE
+    rationale: str
+    space: str = ""                  # concept space this verdict was computed on
+    vs_controls: dict = field(default_factory=dict)    # control -> PairedTest (minority AUROC)
+    vs_fbaselines: dict = field(default_factory=dict)  # baseline -> PairedTest (minority AUROC)
+    morgana_gap: Optional[object] = None               # PairedTest V_full vs V_comp
+    beats: dict = field(default_factory=dict)          # name -> bool
+    morgana_adds_value: bool = False
+
+
+def _beats(t, alpha_sig: float) -> bool:
+    """V wins over a comparator: positive lower CI on the paired delta, or paired p<alpha with a
+    positive point estimate (same rule as the Section-4 kill switch)."""
+    if t is None:
+        return False
+    return (t.delta_lo > 0) or (t.p_value < alpha_sig and t.delta > 0)
+
+
+def premise2_verdict(
+    df,
+    *,
+    space: str = "",
+    primary: str = "V_full",
+    comp: str = "V_comp",
+    controls=PREMISE2_CONTROLS,
+    fbaselines=PREMISE2_FBASELINES,
+    n_resamples: int = 1000,
+    ci: float = 0.95,
+    seed: int = 0,
+    alpha_sig: float = 0.05,
+) -> Premise2Verdict:
+    """Pre-committed premise-2 criterion (task Section 5), on the MINORITY group of one concept
+    space. NOVELTY-VALIDATED iff V_full beats EVERY concept-space control AND the f-baselines on
+    minority error-detection AUROC, AND V_full > V_comp (Morgana adds value). PARTIAL if V beats
+    the f-baselines but not the concept controls (=> "clean concepts help"), or beats controls but
+    Morgana adds nothing. NULL if V beats no concept-space control anywhere."""
+    minority = df["is_minority"].to_numpy().astype(bool)
+    correct = df["correct"].to_numpy().astype(int)
+    if not minority.any() or primary not in df:
+        return Premise2Verdict("INCONCLUSIVE", f"missing minority group or {primary}", space=space)
+
+    v = df[primary].to_numpy().astype(float)[minority]
+    c = correct[minority]
+
+    def _test(other):
+        if other not in df or not df[other].notna().any():
+            return None
+        o = df[other].to_numpy().astype(float)[minority]
+        return paired_bootstrap_test(
+            metrics.error_detection_auroc, (v, c), (o, c), primary, other,
+            n_resamples=n_resamples, ci=ci, seed=seed,
+        )
+
+    vs_controls = {k: _test(k) for k in controls}
+    vs_fbaselines = {k: _test(k) for k in fbaselines}
+    morgana_gap = _test(comp)
+
+    beats = {k: _beats(t, alpha_sig) for k, t in {**vs_controls, **vs_fbaselines}.items()}
+    morgana_adds = _beats(morgana_gap, alpha_sig)
+
+    have_controls = [k for k in controls if vs_controls.get(k) is not None]
+    have_f = [k for k in fbaselines if vs_fbaselines.get(k) is not None]
+    beats_all_controls = bool(have_controls) and all(beats.get(k, False) for k in have_controls)
+    beats_all_f = bool(have_f) and all(beats.get(k, False) for k in have_f)
+    beats_any_control = any(beats.get(k, False) for k in have_controls)
+
+    if beats_all_controls and beats_all_f and morgana_adds:
+        label = "NOVELTY-VALIDATED"
+        why = ("V_full beats both concept-space controls AND the f-baselines on minority AUROC, "
+               "AND V_full > V_comp: the adversarial verifiability mechanism adds value over a "
+               "plain concept probe.")
+    elif beats_all_f and not beats_all_controls:
+        label = "PARTIAL"
+        why = ("V beats the f-feature baselines but NOT every concept-space control "
+               "(probe_concept/trust_concept). The advantage is 'clean concepts help', not "
+               "adversarial verifiability.")
+    elif beats_all_controls and not morgana_adds:
+        label = "PARTIAL"
+        why = ("V_full beats the concept-space controls but V_full does NOT significantly exceed "
+               "V_comp: Morgana adds no measurable value (the win is the concept bottleneck + "
+               "completeness, not the adversary).")
+    elif not beats_any_control:
+        label = "NULL"
+        why = ("V_full beats no concept-space control on the minority: no contribution beyond a "
+               "plain concept probe in this space.")
+    else:
+        label = "PARTIAL"
+        why = ("Mixed evidence: V beats some but not all controls/baselines, or Morgana's "
+               "contribution is not significant.")
+
+    bits = []
+    for k, t in {**vs_controls, **vs_fbaselines}.items():
+        if t is None:
+            bits.append(f"vs {k}: missing")
+        else:
+            bits.append(f"vs {k}: dAUROC={t.delta:+.3f}[{t.delta_lo:+.3f},{t.delta_hi:+.3f}] "
+                        f"p={t.p_value:.3f} ({'beats' if beats[k] else 'ties/loses'})")
+    if morgana_gap is not None:
+        bits.append(f"V_full-V_comp={morgana_gap.delta:+.3f}"
+                    f"[{morgana_gap.delta_lo:+.3f},{morgana_gap.delta_hi:+.3f}] "
+                    f"p={morgana_gap.p_value:.3f} "
+                    f"({'Morgana adds value' if morgana_adds else 'Morgana idle'})")
+    rationale = f"[{space}] {why} | " + " | ".join(bits)
+
+    return Premise2Verdict(
+        label=label, rationale=rationale, space=space,
+        vs_controls=vs_controls, vs_fbaselines=vs_fbaselines,
+        morgana_gap=morgana_gap, beats=beats, morgana_adds_value=morgana_adds,
+    )
 
 
 def kill_switch_verdict(

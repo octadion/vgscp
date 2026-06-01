@@ -10,7 +10,7 @@ from typing import Optional
 
 import numpy as np
 
-from . import confidence, ensemble, mcdropout, ncv, trust
+from . import concept_probe, confidence, ensemble, mcdropout, ncv, trust
 
 # Canonical signal names compared in Phase 1. The kill-switch focuses on V_full vs trust and
 # ensemble_disagree (NOT just conf_msp).
@@ -23,6 +23,10 @@ CANONICAL_SIGNALS = [
     "V_sound",
     "V_full",
 ]
+
+# Premise-2 concept-space controls (same concept space as V): V must beat these to have any
+# contribution beyond "use a concept bottleneck".
+CONCEPT_CONTROL_SIGNALS = ["probe_concept", "trust_concept"]
 
 
 def build_signals(
@@ -40,6 +44,9 @@ def build_signals(
     n_classes: Optional[int] = None,
     beta: float = 0.5,
     knn_chunk: int = 4096,
+    train_concepts: Optional[np.ndarray] = None,
+    query_concepts: Optional[np.ndarray] = None,
+    concept_probe_kind: str = "logistic",
 ) -> dict:
     """Return {signal_name: np.ndarray(N,)} for all available signals (higher = more reliable).
 
@@ -58,6 +65,16 @@ def build_signals(
         out["ensemble_disagree"] = ensemble.ensemble_disagreement_signal(member_probs)
     if mc_pass_probs is not None:
         out["mcdropout"] = mcdropout.mcdropout_signal(mc_pass_probs)
+
+    # premise-2 concept-space controls (same concept space the verifier uses)
+    if train_concepts is not None and query_concepts is not None and train_labels is not None:
+        nc = n_classes or int(train_labels.max() + 1)
+        out["probe_concept"] = concept_probe.probe_concept_confidence(
+            train_concepts, train_labels, query_concepts, kind=concept_probe_kind
+        )
+        out["trust_concept"] = concept_probe.trust_concept_score(
+            train_concepts, train_labels, query_concepts, y_pred, nc, chunk=knn_chunk
+        )
 
     if pA_given_SM is not None and pA_given_SA is not None:
         nv = ncv.compute_ncv_signals(pA_given_SM, pA_given_SA, y_pred, beta, reject_prob)
