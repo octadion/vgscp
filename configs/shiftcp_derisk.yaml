@@ -1,0 +1,90 @@
+# DE-RISK: Spurious-Invariant Conformal under a correlation-STRENGTH shift (go/no-go gate).
+#
+# Reuses the cached Waterbirds f + CUB attribute concepts from results/cache_killswitch/seed0
+# (built once by scripts/run_killswitch_gap.py). DO NOT retrain f / ensemble / CLIP. The dataset /
+# cub / clip / model / ncv blocks below mirror the kill-switch config ONLY so build_or_load can
+# locate (and, if the cache were ever missing, rebuild) the same artifacts — they are not used when
+# the cache is present. The de-risk-specific axes are `scores`, `shift`, and `alphas`.
+defaults:
+  - common
+  - perf
+
+dataset:
+  name: waterbirds
+  root: ${oc.env:WATERBIRDS_ROOT,data/raw/waterbirds}
+  download: true
+  url: https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz
+  image_size: 224
+  n_classes: 2                  # landbird=0 / waterbird=1
+  # group_id = 2*y + place ; place: land=0 / water=1 ; minority/conflict = (y != place)
+
+cub:
+  root: ${oc.env:CUB_ROOT,data/raw/cub}
+  download: true
+  url: https://data.caltech.edu/records/65de6-vp158/files/CUB_200_2011.tgz
+  use_certainty: false
+  min_coverage: 0.99
+
+clip:
+  model_name: ViT-B-32
+  pretrained: laion2b_s34b_b79k
+  temperature_softmax: false
+  temperature: 0.01
+  scene_concept_bank:
+    - "a photo taken near water"
+    - "an ocean in the background"
+    - "a lake in the background"
+    - "a forest in the background"
+    - "trees in the background"
+    - "dry land"
+
+concepts:
+  standardize: true
+
+model:
+  backbone: resnet50
+  pretrained: true
+  num_epochs: 5
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  optimizer: adam
+  dropout_p: 0.2
+
+ncv:
+  source: reimpl
+  morgana: on
+  merlin_sparsity: 6
+  morgana_sparsity: 6
+  reject_class: true
+  hidden: 128
+  epochs: 30
+  lr: 1.0e-3
+  batch_size: 256
+  n_train_max: 4000
+  standardize: false
+
+ensemble:
+  n_members: 3
+mc_dropout:
+  n_passes: 20
+
+# --- DE-RISK axes ---
+# Nonconformity scores: f-softmax (contaminated) vs concept-probe (shortcut-invariant).
+scores:
+  f_kind: APS                   # APS | RAPS | THR on the f-softmax
+  cpt_score_kind: THR           # THR => s_concept = 1 - p_probe(y|concepts); APS also supported
+
+# Controlled correlation-STRENGTH shift. rho = P(place == y) at balanced classes.
+shift:
+  rho_cal: 0.95                 # train-like calibration correlation
+  rho_test: [0.95, 0.75, 0.50, 0.25]   # 0.25 = flipped-minority regime
+  frac_cal: 0.5                 # disjoint cal/test split of the pooled d_cal+d_test indices
+  n_cal: 2000                   # fixed calibration N (resampled to rho_cal)
+  n_test: 2000                  # fixed test N across every rho_test
+
+alphas: [0.1, 0.2]              # primary gate at 0.1; 0.2 logged
+
+experiment:
+  name: shiftcp_derisk
+  seeds: [0]                    # single seed for the gate
+  out_dir: results
