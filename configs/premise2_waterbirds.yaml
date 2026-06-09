@@ -35,7 +35,9 @@ cub:
 
 clip:
   model_name: ViT-B-32
-  pretrained: laion2b_s34b_b79k
+  pretrained: openai            # 512-d; shared across E1–E4 so ONE feature cache is reused
+  device: cuda
+  cache_dir: results/cache_clip
   temperature_softmax: false
   temperature: 0.01
   # A-PRIORI scene/background prompt subset = the SPURIOUS concepts for the mixed space.

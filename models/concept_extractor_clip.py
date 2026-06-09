@@ -113,6 +113,39 @@ class CLIPConceptExtractor:
                 scores.append(sc.float().cpu().numpy())
         return np.concatenate(scores, axis=0)
 
+    # ---- image -> normalized global CLIP features (the feature space, NOT the concept cosines) ----
+    def encode_image_features(self, paths: list[str], batch_size: int = 64,
+                              show_progress: bool = True) -> np.ndarray:
+        """Return L2-normalized (N, d) global CLIP image embeddings for a list of image paths.
+
+        This is the FEATURE space used by E1/E3/E4 (a logistic head is fit on top of these), as
+        opposed to ``encode_paths`` which returns cosine similarities to the text concept bank. The
+        model is loaded lazily and frozen (same backbone as the concept path)."""
+        import torch
+        from PIL import Image
+
+        if self._model is None:
+            self.load()
+        feats = []
+        rng = range(0, len(paths), batch_size)
+        if show_progress:
+            try:
+                from tqdm import tqdm
+
+                rng = tqdm(rng, desc="CLIP features")
+            except ImportError:
+                pass
+        with torch.inference_mode():
+            for i in rng:
+                batch_paths = paths[i : i + batch_size]
+                imgs = torch.stack(
+                    [self._preprocess(Image.open(p).convert("RGB")) for p in batch_paths]
+                ).to(self.device)
+                iemb = self._model.encode_image(imgs)
+                iemb = iemb / iemb.norm(dim=-1, keepdim=True)
+                feats.append(iemb.float().cpu().numpy())
+        return np.concatenate(feats, axis=0)
+
     # ---- standardization (TRAIN-only fit) ----
     def fit_standardizer(self, train_scores: np.ndarray) -> "CLIPConceptExtractor":
         self.standardizer = ConceptStandardizer.fit(train_scores)

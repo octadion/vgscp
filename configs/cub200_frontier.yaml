@@ -1,0 +1,63 @@
+# E1 — CUB-200 multiclass coverage–efficiency frontier (the positive anchor).
+#
+# Construction & sweep follow experiments/cub200_frontier.py (spec §2b) EXACTLY:
+#   target  = 200-way CUB species (parsed from the Waterbirds image's CUB folder name)
+#   spurious = binary background `place` {land=0, water=1}
+#   species_type t(species) = the binary Waterbirds label y (constant per species)
+#   group   = binary background-typicality (place == t(species)); ATYPICAL = minority/worst
+#   rho     = P(place == typical); calibrate at rho_cal, sweep test rho
+#
+# RUNTIME TRICK (§2b): encode frozen CLIP global features ONCE and cache; fit the two logistic heads
+# (feats->species, attrs->species) on cached inputs; the full multi-seed × rho sweep then runs on
+# cached scores (cheap, well under the 5h budget). The only real training cost is the two heads.
+# REAL path needs torch + open_clip + the datasets (Colab/GPU). Locally use `--smoke`.
+defaults:
+  - common
+  - perf
+
+dataset:
+  name: waterbirds
+  root: ${oc.env:WATERBIRDS_ROOT,data/raw/waterbirds}
+  download: true
+  url: https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz
+  image_size: 224
+  n_classes: 200                # 200-way CUB species (NOT the binary Waterbirds label)
+
+cub:
+  # Per-image 312 CUB attributes = the concept space; species id parsed from the path.
+  root: ${oc.env:CUB_ROOT,data/raw/cub}
+  download: true
+  url: https://data.caltech.edu/records/65de6-vp158/files/CUB_200_2011.tgz
+  use_certainty: false
+  min_coverage: 0.99
+
+clip:
+  # Frozen CLIP ViT-B/32 global image features = the feature space (background-dominated).
+  model_name: ViT-B-32
+  pretrained: openai            # 512-d; shared across E1–E4 so ONE feature cache is reused
+  device: cuda
+  cache_dir: results/cache_clip # encode once, cache to disk (precompute-once); symlink to Drive on Colab
+
+heads:
+  # Two multinomial logistic heads on FROZEN inputs (no large-model training).
+  kind: logistic                # logistic | mlp
+  C: 1.0
+  max_iter: 2000
+
+scores:
+  fns: [APS, RAPS, THR]         # run all three score functions
+
+# Correlation-strength sweep. rho = P(place == typical) at FIXED 200-way class balance.
+shift:
+  rho_cal: 0.95                 # calibrate at high correlation (train-like)
+  rho_test: [0.95, 0.90, 0.80, 0.70, 0.60, 0.50]
+  frac_cal: 0.5                 # disjoint cal/test pool split
+  n_cal: 3000                   # fixed calibration N (resampled to rho_cal)
+  n_test: 3000                  # fixed test N across every rho_test
+
+alpha: 0.1                      # 90% nominal coverage
+
+experiment:
+  name: cub200_frontier
+  seeds: 10                     # >=10 random cal/test splits; report mean ± std
+  out_dir: results/e1
