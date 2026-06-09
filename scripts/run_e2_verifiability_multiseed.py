@@ -84,9 +84,50 @@ def _smoke_ncv(cfg):
     return cfg
 
 
-def evaluate_space_seed(space, concepts_raw, fdata, cfg, seed, standardize=True):
+def _resolve_device(cfg):
+    """Use CUDA when available (so the verifier's Arthur MLP + greedy prover search run on GPU);
+    fall back to CPU. Overridable via cfg.e2.device."""
+    dev = cfg.get("e2", {}).get("device")
+    if dev:
+        return dev
+    try:
+        import torch
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        return "cpu"
+
+
+def _subsample_eval(fdata, concepts_raw, splits, max_per_group, seed):
+    """Stratified (by is_minority) per-seed subsample of the named eval splits to <= max_per_group
+    samples PER group, so the verifier's greedy search runs on a few thousand points instead of the
+    full ~11k (AUROC is stable there). Returns reduced (fdata, concepts) COPIES (originals untouched)
+    and a dict of the realized n per split. No-op when max_per_group is None."""
+    if not max_per_group:
+        return fdata, concepts_raw, {s: int(len(fdata[s]["y_true"])) for s in splits}
+    rng = np.random.default_rng(seed + 99)
+    fd, cc, ns = dict(fdata), {k: v for k, v in concepts_raw.items()}, {}
+    for s in splits:
+        minor = np.asarray(fdata[s]["is_minority"]).astype(bool)
+        keep = []
+        for grp_mask in (minor, ~minor):
+            idx = np.where(grp_mask)[0]
+            if len(idx) > max_per_group:
+                idx = rng.choice(idx, size=max_per_group, replace=False)
+            keep.append(idx)
+        keep = np.sort(np.concatenate(keep))
+        fd[s] = {k: (v[keep] if isinstance(v, np.ndarray) and v.shape[:1] == minor.shape else v)
+                 for k, v in fdata[s].items()}
+        cc[s] = concepts_raw[s][keep]
+        ns[s] = int(len(keep))
+    return fd, cc, ns
+
+
+def evaluate_space_seed(space, concepts_raw, fdata, cfg, seed, standardize=True, device="cpu"):
     """Per-(space, seed): train verifiers, build the full signal set, return per-signal minority
     error-detection AUROC + spurious-attribute (contamination) AUROC on d_test."""
+    max_per_group = cfg.get("e2", {}).get("eval_max_per_group")
+    fdata, concepts_raw, eval_ns = _subsample_eval(fdata, concepts_raw, ("d_learn", "d_test"),
+                                                   max_per_group, seed)
     n_classes = int(fdata["train"]["probs"].shape[1])
     if standardize:
         std = ConceptStandardizer.fit(concepts_raw["train"])
@@ -98,9 +139,9 @@ def evaluate_space_seed(space, concepts_raw, fdata, cfg, seed, standardize=True)
 
     ncv_on = dict(cfg["ncv"]); ncv_on["morgana"] = "on"; ncv_on["standardize"] = False
     ncv_off = dict(cfg["ncv"]); ncv_off["morgana"] = "off"; ncv_off["standardize"] = False
-    v_on = build_verifier(ncv_on, concept_dim, n_classes, device="cpu"); v_on.train(
+    v_on = build_verifier(ncv_on, concept_dim, n_classes, device=device); v_on.train(
         concepts["train"], train_y, seed=seed)
-    v_off = build_verifier(ncv_off, concept_dim, n_classes, device="cpu"); v_off.train(
+    v_off = build_verifier(ncv_off, concept_dim, n_classes, device=device); v_off.train(
         concepts["train"], train_y, seed=seed)
 
     # clean_mask from TRAIN-only concept spuriousness vs the spurious attr (place)
@@ -146,18 +187,23 @@ def evaluate_space_seed(space, concepts_raw, fdata, cfg, seed, standardize=True)
                      if minor.sum() > 0 and len(np.unique(correct[minor])) > 1 else float("nan"))
         contam = metrics.contamination_auroc(s, spur, yt)
         rows.append({"space": space, "seed": int(seed), "signal": label,
-                     "minority_auroc": auroc_min, "contamination_auroc": contam, "beta": float(beta)})
+                     "minority_auroc": auroc_min, "contamination_auroc": contam, "beta": float(beta),
+                     "n_eval": int(eval_ns["d_test"]), "device": device})
     return rows
 
 
 def run(cfg, mode, n_seeds):
     rows = []
+    # SMOKE stays on CPU (tiny synthetic data) so its numbers are byte-identical to before; REAL
+    # uses CUDA when available (the verifier's MLP + greedy prover search are the hot path).
+    device = "cpu" if mode == "smoke" else _resolve_device(cfg)
     if mode == "smoke":
         cfg = _smoke_ncv(cfg)
         for s in range(n_seeds):
             fdata, concept_sets = _make_smoke_fdata_and_concepts(seed=s)
             for space in SPACES:
-                rows.extend(evaluate_space_seed(space, concept_sets[space], fdata, cfg, seed=s))
+                rows.extend(evaluate_space_seed(space, concept_sets[space], fdata, cfg, seed=s,
+                                                device=device))
     else:
         # REAL (Colab/GPU): build the binary f + concept spaces ONCE on cached CLIP features (no
         # large-model training); the "mixed" space = CUB attributes + CLIP scene-concept cosines
@@ -178,8 +224,9 @@ def run(cfg, mode, n_seeds):
             "mixed": {sp: np.concatenate([bundle.attrs[sp], scene[sp]], axis=1) for sp in SPLITS}}
         for s in range(n_seeds):
             for space in SPACES:
-                rows.extend(evaluate_space_seed(space, concept_sets[space], fdata, cfg, seed=s))
-    return {"rows": rows, "mode": mode, "n_seeds": n_seeds}
+                rows.extend(evaluate_space_seed(space, concept_sets[space], fdata, cfg, seed=s,
+                                                device=device))
+    return {"rows": rows, "mode": mode, "n_seeds": n_seeds, "device": device}
 
 
 # -------------------------------------------------------------------- aggregation / report

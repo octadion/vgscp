@@ -166,46 +166,62 @@ class ReimplNCV(VerifierAdapter):
         return torch.softmax(self._arthur_logits(concepts_t, mask_t), dim=1)
 
     # ---- greedy prover selection (used in BOTH training and inference) ----
-    def _greedy_select(self, concepts_t, sparsity, maximize_label, allowed_mask=None):
+    def _greedy_select(self, concepts_t, sparsity, maximize_label, allowed_mask=None,
+                       return_chosen=True):
         """Greedily grow a sparse mask to MAXIMIZE Arthur's prob of ``maximize_label``.
 
         Vectorized over samples; loops over the ``d`` candidate concepts per greedy step. Runs
         under inference_mode (no grad) — provers select against a frozen snapshot of Arthur.
-        Returns (mask (n,d) float, chosen list[list[int]]).
+        Returns (mask (n,d) float, chosen list[list[int]] or None).
 
         ``allowed_mask`` (optional, (d,) bool/array): when given, Merlin may ONLY pick concept dims
         where it is True (the counterfactual support-gap restriction). ``allowed_mask=None`` is the
-        default and is byte-identical to the original behavior (the masking branch below is only
-        ever entered when a mask is supplied).
+        default and is byte-identical to the original behavior.
+
+        Performance (numerically identical to the original per-candidate greedy): we (a) save/restore
+        ONE column instead of cloning the whole (n,d) mask per candidate (was O(sparsity*d) full-mask
+        clones), (b) accumulate the per-step argmax columns and build ``chosen`` ONCE at the end via
+        a single host transfer instead of n*sparsity ``.item()`` calls, and (c) skip building
+        ``chosen`` entirely when ``return_chosen`` is False (training / completeness never use it).
         """
         import torch
 
         n, d = concepts_t.shape
-        allowed = None
+        allowed_np = None
         if allowed_mask is not None:
-            allowed = torch.as_tensor(np.asarray(allowed_mask, dtype=bool), device=concepts_t.device)
+            allowed_np = np.asarray(allowed_mask, dtype=bool)
             # never select more dims than are allowed (e.g. a tiny clean set)
-            sparsity = min(int(sparsity), int(allowed.sum().item()))
+            sparsity = min(int(sparsity), int(allowed_np.sum()))
         mask = torch.zeros(n, d, device=concepts_t.device)
-        chosen = [[] for _ in range(n)]
         rows = torch.arange(n, device=concepts_t.device)
+        step_choices = []  # per-step (n,) best-column tensors; transferred to host once at the end
         for _ in range(int(sparsity)):
             best_gain = torch.full((n,), -1e9, device=concepts_t.device)
             best_j = torch.zeros(n, dtype=torch.long, device=concepts_t.device)
             for j in range(d):
-                if allowed is not None and not bool(allowed[j]):
-                    continue  # disallowed concept dim is never selectable
-                trial = mask.clone()
-                trial[:, j] = 1.0
-                p = self._arthur_probs(concepts_t, trial)[rows, maximize_label]
-                already = mask[:, j] > 0  # don't reselect a chosen concept
+                if allowed_np is not None and not allowed_np[j]:
+                    continue  # disallowed concept dim is never selectable (host-side, no GPU sync)
+                col = mask[:, j]
+                already = col > 0  # don't reselect a chosen concept (from the CURRENT mask)
+                saved = col.clone()
+                mask[:, j] = 1.0
+                p = self._arthur_probs(concepts_t, mask)[rows, maximize_label]
+                mask[:, j] = saved  # restore -> mask is unchanged for the next candidate j
                 gain = torch.where(already, torch.full_like(p, -1e9), p)
                 upd = gain > best_gain
                 best_gain = torch.where(upd, gain, best_gain)
                 best_j = torch.where(upd, torch.full_like(best_j, j), best_j)
             mask[rows, best_j] = 1.0
-            for i in range(n):
-                chosen[i].append(int(best_j[i].item()))
+            if return_chosen:
+                step_choices.append(best_j)
+        chosen = None
+        if return_chosen:
+            if step_choices:
+                # (sparsity, n) -> (n, sparsity) -> host, in ONE transfer (no per-sample .item())
+                stacked = torch.stack(step_choices, dim=0).t().cpu().numpy()
+                chosen = [row.tolist() for row in stacked]
+            else:
+                chosen = [[] for _ in range(n)]
         return mask, chosen
 
     def _best_wrong_label(self, concepts_t, y_avoid):
@@ -271,10 +287,12 @@ class ReimplNCV(VerifierAdapter):
                 self.arthur.eval()
                 with torch.inference_mode():
                     # Merlin: cooperative, push the TRUE label
-                    mask_M, _ = self._greedy_select(x, self.merlin_sparsity, yt)
+                    mask_M, _ = self._greedy_select(x, self.merlin_sparsity, yt,
+                                                    return_chosen=False)
                     if self.morgana_enabled:
                         y_adv = self._best_wrong_label(x, yt)
-                        mask_A, _ = self._greedy_select(x, self.morgana_sparsity, y_adv)
+                        mask_A, _ = self._greedy_select(x, self.morgana_sparsity, y_adv,
+                                                        return_chosen=False)
             self.arthur.train()
             perm = torch.randperm(n, device=self.device)
             for i in range(0, n, self.batch_size):
@@ -342,7 +360,8 @@ class ReimplNCV(VerifierAdapter):
         x = torch.as_tensor(self._standardize_np(concepts), dtype=torch.float32, device=self.device)
         yp = torch.as_tensor(np.asarray(y_pred, dtype=np.int64), dtype=torch.long, device=self.device)
         with torch.inference_mode():
-            mask_M, _ = self._greedy_select(x, self.merlin_sparsity, yp, allowed_mask=allowed_mask)
+            mask_M, _ = self._greedy_select(x, self.merlin_sparsity, yp, allowed_mask=allowed_mask,
+                                            return_chosen=False)
             pA_SM = self._arthur_probs(x, mask_M)[:, : self._n_classes]
         rows = np.arange(x.shape[0])
         return pA_SM.detach().cpu().numpy()[rows, np.asarray(y_pred, dtype=np.int64)]

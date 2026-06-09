@@ -100,6 +100,15 @@ probe:
   max_per_split: null           # use the full splits for the gate (set an int to subsample)
   concept_probe_kind: logistic  # plain concept->y probe for probe_concept (logistic|mlp)
 
+# E2 multi-seed performance knobs (scripts/run_e2_verifiability_multiseed). The verifier's Arthur
+# MLP + greedy prover search are the hot path on real data; these speed it up WITHOUT changing what
+# is measured. The greedy-search iteration count per prover IS ncv.merlin_sparsity / morgana_sparsity
+# above (each is one greedy step); lower them to cap search cost (changes results — left at 6).
+e2:
+  device: null                  # null -> auto (CUDA if available, else CPU); set "cuda"/"cpu" to force
+  eval_max_per_group: 2000      # subsample d_learn/d_test to <=N per minority/majority group per seed
+                                # (AUROC stable here; the realized n is recorded as `n_eval`). null=full
+
 experiment:
   name: premise2_waterbirds
   seeds: [0]                    # 1 seed for the gate (multi-seed CIs are a later phase)
