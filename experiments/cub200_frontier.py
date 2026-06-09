@@ -174,6 +174,25 @@ def split_pool(n_total: int, frac_cal: float, seed: int) -> tuple[np.ndarray, np
 # ======================================================================================
 # Synthetic multiclass population (CPU pipeline self-test -- NOT a scientific claim)
 # ======================================================================================
+# Concept-source presets (run spec v2 §2b). The corrected run must NOT score ground-truth MTurk
+# attributes at test time (label leakage); test-time concept scores must be IMAGE-DERIVED. We model
+# three sources so the synthetic harness exercises each. Each preset = (margin, residual_delta,
+# spurious_kappa): higher residual_delta => more residual non-invariance; spurious_kappa>0 => the
+# concept score inherits SOME background contamination (predicted concepts read a contaminated CLIP
+# feature, unlike the clean GT annotations).
+CONCEPT_SOURCES = {
+    # LEAKY baseline: ground-truth per-image attributes (NOT used at test in the corrected run; kept
+    # only to reproduce the prior, invalid behaviour). Clean + strongly invariant + high accuracy.
+    "gt_attrs_leaky": dict(cpt_margin=2.6, cpt_residual_delta=0.35, cpt_spurious_kappa=0.0),
+    # PRIMARY: CBM probe (CLIP features -> predicted attributes -> species). Image-derived, so it
+    # inherits a little background contamination and loses some accuracy vs the GT annotations.
+    "cbm": dict(cpt_margin=2.1, cpt_residual_delta=0.55, cpt_spurious_kappa=0.35),
+    # APPENDIX: CLIP zero-shot attribute cosines. Fully image-derived, no attribute training; weakest
+    # signal (lowest accuracy), slightly more residual + contamination.
+    "zeroshot": dict(cpt_margin=1.6, cpt_residual_delta=0.75, cpt_spurious_kappa=0.45),
+}
+
+
 @dataclass
 class SmokeConfig:
     n: int = 9000
@@ -184,13 +203,28 @@ class SmokeConfig:
     feat_margin_typical: float = 3.4
     feat_margin_atypical: float = 1.2
     feat_spurious_kappa: float = 1.8
-    # CONCEPT head (attribute-like, shortcut-invariant): true-class margin ~constant across
-    # typicality, with a SMALL residual non-invariance delta (so it relocates the gap but does NOT
-    # reach absolute worst-group coverage = 1-alpha -- exactly the spec's expectation).
-    cpt_margin: float = 2.6
-    cpt_residual_delta: float = 0.35
+    # CONCEPT head: the corrected run uses an IMAGE-DERIVED (predicted) concept source -- default the
+    # CBM preset (§2b). Set ``concept_source`` to pick a preset, or override the three knobs directly.
+    concept_source: str = "cbm"
+    cpt_margin: Optional[float] = None
+    cpt_residual_delta: Optional[float] = None
+    cpt_spurious_kappa: Optional[float] = None
     margin_sd: float = 0.8
     seed: int = 0
+
+    def resolved_concept(self) -> dict:
+        """Concept-head knobs: explicit overrides win, else the ``concept_source`` preset."""
+        if self.concept_source not in CONCEPT_SOURCES:
+            raise ValueError(f"unknown concept_source {self.concept_source!r}; "
+                             f"choose from {list(CONCEPT_SOURCES)}")
+        base = dict(CONCEPT_SOURCES[self.concept_source])
+        if self.cpt_margin is not None:
+            base["cpt_margin"] = self.cpt_margin
+        if self.cpt_residual_delta is not None:
+            base["cpt_residual_delta"] = self.cpt_residual_delta
+        if self.cpt_spurious_kappa is not None:
+            base["cpt_spurious_kappa"] = self.cpt_spurious_kappa
+        return base
 
 
 def _softmax_probs(logits: np.ndarray) -> np.ndarray:
@@ -230,11 +264,16 @@ def make_smoke_population(cfg: SmokeConfig) -> dict:
     feat_logits += cfg.feat_spurious_kappa * type_match
     feat_probs = _softmax_probs(feat_logits)
 
-    # ----- CONCEPT head logits (shortcut-invariant, small residual) -----
+    # ----- CONCEPT head logits (image-derived predicted concept; mostly shortcut-invariant) -----
+    ck = cfg.resolved_concept()
     cpt_logits = rng.normal(0.0, 1.0, size=(n, C))
-    margin_c = np.where(typ == TYPICAL, cfg.cpt_margin, cfg.cpt_margin - cfg.cpt_residual_delta)
+    margin_c = np.where(typ == TYPICAL, ck["cpt_margin"], ck["cpt_margin"] - ck["cpt_residual_delta"])
     margin_c = np.maximum(0.05, rng.normal(margin_c, cfg.margin_sd))
     cpt_logits[np.arange(n), species] += margin_c
+    # predicted concepts read a CONTAMINATED CLIP feature, so (unlike clean GT annotations) they
+    # inherit a SMALL background-spurious boost -- 0 for the gt_attrs_leaky preset.
+    if ck["cpt_spurious_kappa"] > 0:
+        cpt_logits += ck["cpt_spurious_kappa"] * (species_type[None, :] == place[:, None])
     cpt_probs = _softmax_probs(cpt_logits)
 
     return {
@@ -247,6 +286,7 @@ def make_smoke_population(cfg: SmokeConfig) -> dict:
         "n_classes": C,
         "feat_top1": float((feat_probs.argmax(1) == species).mean()),
         "cpt_top1": float((cpt_probs.argmax(1) == species).mean()),
+        "concept_source": cfg.concept_source,
         "synthetic": True,
     }
 
@@ -271,73 +311,23 @@ def species_from_waterbirds_paths(paths: list[str]) -> np.ndarray:
 
 
 def load_real_population(cfg: dict, seed: int) -> dict:
-    """REAL CUB-200 multiclass population from frozen CLIP features + per-image CUB attributes.
+    """REAL CUB-200 multiclass population (CORRECTED, run spec v2 §2a + §2b). Colab/GPU only.
 
-    Intended Colab/GPU path (NO large-model training -- two logistic heads on FROZEN inputs):
-      1. Build the Waterbirds bundle (paths, y, place, group) via ``data.waterbirds.load_waterbirds``
-         (build_datasets=False; we only need paths + labels here for the score arrays).
-      2. SPECIES (200-way target): ``species_from_waterbirds_paths(bundle.meta['paths'][split])``.
-         species_type t(species) = the binary Waterbirds label y (constant per species).
-      3. CONCEPT space: per-image 312 CUB attributes via
-         ``data.cub_attributes.load_cub_attribute_concepts`` (per-image labels ONLY; no oracle).
-         Fit a multinomial logistic probe attrs->species on TRAIN -> concept-space (N, 200) probs.
-      4. FEATURE space: encode every image ONCE with ``models.concept_extractor_clip`` /
-         open_clip to frozen CLIP global image features; CACHE to disk (precompute-once -- the
-         runtime trick in §2b). Fit a multinomial logistic head feats->species on TRAIN ->
-         feature-space (N, 200) probs. Log BOTH heads' top-1 accuracy.
-      5. typicality = (place == species_type) per ``typicality_group``; rho = P(typical).
+    Delegates to ``experiments.real_data.assemble_e1_population``, which fixes the prior confounds:
+      * §2a  the FEATURE head is trained on CLEAN CUB-200 features (not background-composited ones),
+        with L2-normalization asserted, and its clean top-1 reported as the sanity target (>=0.55);
+        the prior run's broken 0.182 head trained on composited images. The frontier still scores the
+        CONTAMINATED (Waterbirds-composited) pool posteriors -- contamination shows up in the score
+        under shift, not in a broken head.
+      * §2b  the CONCEPT score is IMAGE-DERIVED (predicted): cbm (default, CLIP feats->attr probe->
+        predicted attrs->species), zeroshot (CLIP zero-shot attr cosines->species), or
+        gt_attrs_leaky (the PRIOR INVALID path that scored ground-truth attributes at test -- kept
+        ONLY for the leakage demo). Choose via ``cfg['concept_source']`` (default 'cbm').
 
-    Requires torch + open_clip + the CUB-200 / Waterbirds image data + (ideally) a GPU for the
-    one-time CLIP encode. The cached-feature run is well under the 5h budget; the only real training
-    cost is the two logistic heads. Returns the same population dict shape as
-    ``make_smoke_population`` (the orchestrator splits this pool into cal/test per seed).
-
-    Heads are fit on the TRAIN split; the returned population is the NON-train pool (d_learn +
-    d_cal + d_test), so calibration/test never see training images. ``feat_top1`` / ``cpt_top1`` are
-    the two heads' top-1 accuracy on that pool. Small-sample honesty: per-typicality pool counts are
-    recorded in the returned ``info`` so thin-atypical regimes are visible (the ρ resampler draws
-    with replacement, so it always hits N, but a thin pool inflates variance -- surfaced here).
+    Returns the same dict shape as ``make_smoke_population`` (+ ``feat_top1_cleancub``,
+    ``concept_source``). Requires torch + open_clip + the CUB-200 / Waterbirds image data; the
+    cached-feature run is well under the 5h budget (the only training cost is the logistic heads +
+    the per-attribute CBM probe). Raises clearly (never fabricates) if the data/CLIP are missing.
     """
-    from experiments.real_data import (build_binary_fdata, fit_logistic_head, head_probs,  # noqa
-                                        load_real_bundle)
-
-    n_classes = int(cfg.get("dataset", {}).get("n_classes", 200))
-    pool_splits = tuple(cfg.get("pool_splits", ("d_learn", "d_cal", "d_test")))
-    bundle = load_real_bundle(cfg, seed)
-
-    # two heads fit on TRAIN only (frozen CLIP features / 312 CUB attributes -> species)
-    hcfg = cfg.get("heads", {})
-    feat_head = fit_logistic_head(bundle.features["train"], bundle.species["train"],
-                                  C=float(hcfg.get("C", 1.0)),
-                                  max_iter=int(hcfg.get("max_iter", 2000)), seed=seed)
-    cpt_head = fit_logistic_head(bundle.attrs["train"], bundle.species["train"],
-                                 C=float(hcfg.get("C", 1.0)),
-                                 max_iter=int(hcfg.get("max_iter", 2000)), seed=seed)
-
-    # pool the non-train splits; freeze head posteriors on the pool
-    species = np.concatenate([bundle.species[s] for s in pool_splits])
-    place = np.concatenate([bundle.place[s] for s in pool_splits])
-    feat_X = np.concatenate([bundle.features[s] for s in pool_splits], axis=0)
-    cpt_X = np.concatenate([bundle.attrs[s] for s in pool_splits], axis=0)
-    s_type = bundle.species_type[species]
-    typ = typicality_group(place, s_type)
-
-    feat_probs = head_probs(feat_head, feat_X, n_classes).astype(np.float32)
-    cpt_probs = head_probs(cpt_head, cpt_X, n_classes).astype(np.float32)
-
-    n_typ = int((typ == TYPICAL).sum())
-    n_atyp = int((typ == ATYPICAL).sum())
-    info = dict(bundle.info)
-    info.update({"pool_n": int(len(species)), "pool_n_typical": n_typ, "pool_n_atypical": n_atyp,
-                 "pool_rho": realized_rho(typ), "pool_splits": list(pool_splits)})
-    if n_atyp < 200:
-        print(f"[cub200] WARNING: thin atypical pool (n_atypical={n_atyp}); worst-group estimates "
-              f"at low ρ will be high-variance.")
-    return {
-        "species": species.astype(np.int64), "species_type": s_type.astype(np.int64),
-        "place": place.astype(np.int64), "typicality": typ,
-        "feat_probs": feat_probs, "cpt_probs": cpt_probs, "n_classes": n_classes,
-        "feat_top1": float((feat_probs.argmax(1) == species).mean()),
-        "cpt_top1": float((cpt_probs.argmax(1) == species).mean()),
-        "synthetic": False, "info": info,
-    }
+    from experiments.real_data import assemble_e1_population
+    return assemble_e1_population(cfg, seed)

@@ -87,6 +87,74 @@ def head_probs(clf, X: np.ndarray, n_classes: int) -> np.ndarray:
     return probe_posteriors(clf, X, n_classes)
 
 
+def assert_l2_normalized(X: np.ndarray, tag: str = "features", tol: float = 1e-2) -> None:
+    """Guard for confound #1 (run spec v2 §2a): CLIP features MUST be L2-normalized before a linear
+    head, or the probe collapses to ~chance. Raises with a clear diagnosis if not unit-norm."""
+    norms = np.linalg.norm(np.asarray(X, dtype=np.float64), axis=1)
+    if X.shape[0] and not np.allclose(norms, 1.0, atol=tol):
+        raise ValueError(
+            f"[head-fix §2a] {tag} are NOT L2-normalized (mean‖x‖={norms.mean():.3f}, "
+            f"min={norms.min():.3f}, max={norms.max():.3f}). A linear probe on un-normalized CLIP "
+            f"features under-fits badly (this was a prime suspect for the 0.182 head). L2-normalize "
+            f"the cached features before fitting/scoring.")
+
+
+# ======================================================================================
+# §2b: IMAGE-DERIVED (predicted) concept features -- the corrected concept source
+# ======================================================================================
+def fit_attribute_probe(X_feats_train: np.ndarray, attrs_train: np.ndarray, C: float = 1.0,
+                        max_iter: int = 1000, seed: int = 0):
+    """CBM bottleneck probe: frozen CLIP image features -> per-attribute presence probability.
+
+    One logistic regressor per attribute (binary present/absent), fit on TRAIN only. At test time
+    we use the PREDICTED attribute probabilities (image-derived), never the ground-truth MTurk
+    labels -- this is the §2b leakage fix. Constant attributes (always 0/1 in TRAIN) get a constant
+    predictor. Returns a list of (col_index, clf-or-const) we can vectorize over.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    attrs_bin = (np.asarray(attrs_train) >= 0.5).astype(int)
+    probes = []
+    for j in range(attrs_bin.shape[1]):
+        yj = attrs_bin[:, j]
+        if yj.min() == yj.max():                 # constant attribute -> constant predictor
+            probes.append(("const", float(yj.mean())))
+            continue
+        clf = LogisticRegression(max_iter=max_iter, C=C, random_state=seed)
+        clf.fit(X_feats_train, yj)
+        probes.append(("clf", clf))
+    return probes
+
+
+def predict_attribute_features(probes, X_feats: np.ndarray) -> np.ndarray:
+    """(N, n_attr) PREDICTED attribute probabilities from the CBM probe (image-derived, §2b)."""
+    out = np.zeros((X_feats.shape[0], len(probes)), dtype=np.float32)
+    for j, (kind, obj) in enumerate(probes):
+        if kind == "const":
+            out[:, j] = obj
+        else:
+            out[:, j] = obj.predict_proba(X_feats)[:, list(obj.classes_).index(1)]
+    return out
+
+
+def clip_zeroshot_attribute_features(features: np.ndarray, attr_names: list, model_name: str,
+                                     pretrained: str, device: str,
+                                     templates: Optional[list] = None) -> np.ndarray:
+    """(N, n_attr) CLIP ZERO-SHOT attribute scores = cosine(image features, attribute-text embedding).
+
+    Fully image-derived, NO attribute training (the cleanest leakage-free concept source, §2b
+    appendix). Each CUB attribute name (e.g. ``has_wing_color::black``) is turned into a readable
+    prompt; the score is the cached L2-normalized image feature dotted with the attribute's text
+    embedding (reuses ``clip_text_concepts`` -> no image re-encode)."""
+    def humanize(a: str) -> str:
+        a = a.split("::")
+        part = a[0].replace("has_", "").replace("_", " ")
+        val = a[1].replace("_", " ") if len(a) > 1 else ""
+        return f"a bird with {part} {val}".strip()
+    prompts = [humanize(a) for a in attr_names]
+    return clip_text_concepts(features, model_name, pretrained, device, prompts)
+
+
 def clip_text_concepts(features: np.ndarray, model_name: str, pretrained: str, device: str,
                        prompts: list[str]) -> np.ndarray:
     """(N, K) cosine concept scores = (cached L2-normalized image features) @ (text embeddings)^T.
@@ -186,6 +254,129 @@ def load_real_bundle(cfg: dict, seed: int, splits: tuple = SPLITS) -> RealBundle
                       y=y, place=place, group_id=group_id, is_minority=is_minority, paths=paths,
                       species_type=species_type, attr_names=attr_names, n_classes=n_classes,
                       info=info)
+
+
+# ======================================================================================
+# §2a CLEAN-CUB feature head + §2b predicted-concept E1 population (the CORRECTED real path)
+# ======================================================================================
+def clean_cub_image_paths(wb_paths: list[str], cub_data_root: str) -> list[str]:
+    """Map Waterbirds (background-COMPOSITED) paths -> the ORIGINAL clean CUB-200 image paths.
+
+    Each Waterbirds path ends in ``<species_folder>/<filename>.jpg``; the clean image lives at
+    ``<cub_data_root>/images/<species_folder>/<filename>.jpg``. Used so the feature head can be
+    trained/evaluated on CLEAN CUB (confound #1: training on composited images degraded the head)."""
+    out = []
+    for p in wb_paths:
+        parts = p.replace("\\", "/").rstrip("/").split("/")
+        out.append(os.path.join(cub_data_root, "images", "/".join(parts[-2:])))
+    return out
+
+
+def assemble_e1_population(cfg: dict, seed: int) -> dict:
+    """CORRECTED E1/unified population (run spec v2 §2a + §2b). Colab/GPU only.
+
+    Fixes vs the prior run:
+      §2a  the FEATURE head is trained on CLEAN CUB-200 features (not background-composited ones)
+           and its clean top-1 is reported as the sanity target (>=0.55). Frozen features are
+           L2-normalized (asserted) before the linear head -- the prime suspect for the 0.182 bug.
+           The frontier still SCORES the contaminated (Waterbirds-composited) pool posteriors, so the
+           contamination shows up in the SCORE under shift, not in a broken head.
+      §2b  the CONCEPT score is IMAGE-DERIVED (predicted), never the ground-truth MTurk attributes:
+             * cbm        : CLIP features -> attribute probe -> predicted attrs -> species head
+             * zeroshot   : CLIP zero-shot attribute cosines -> species head
+             * gt_attrs_leaky : the PRIOR (invalid) path -- ground-truth attrs at test time. Kept ONLY
+               for the leakage demonstration; emits a loud warning and must not be the headline.
+
+    Returns the same dict shape as ``make_smoke_population`` plus ``feat_top1_cleancub`` (the §2a
+    sanity number) and ``concept_source``. This needs torch + open_clip + the CUB/Waterbirds data;
+    every sub-step except CLIP-encoding is pure numpy/sklearn (unit-testable with injected arrays)."""
+    from data.cub_attributes import prepare_cub
+    from experiments.cub200_frontier import realized_rho, typicality_group, ATYPICAL, TYPICAL
+
+    concept_source = cfg.get("concept_source", "cbm")
+    valid = ("cbm", "zeroshot", "gt_attrs_leaky")
+    if concept_source not in valid:
+        raise ValueError(f"concept_source {concept_source!r} not in {valid}")
+    if concept_source == "gt_attrs_leaky":
+        print("[e1 §2b] WARNING: concept_source='gt_attrs_leaky' scores GROUND-TRUTH MTurk "
+              "attributes at TEST time. This is the PRIOR, INVALID behaviour (label leakage); use it "
+              "ONLY to demonstrate the leak, never as the headline concept result.")
+
+    bundle = load_real_bundle(cfg, seed)
+    n_classes = bundle.n_classes
+    hcfg = cfg.get("heads", {})
+    C, max_iter = float(hcfg.get("C", 1.0)), int(hcfg.get("max_iter", 2000))
+    pool_splits = tuple(cfg.get("pool_splits", ("d_learn", "d_cal", "d_test")))
+    clipcfg = cfg.get("clip", {})
+    cargs = (clipcfg.get("model_name", "ViT-B-32"), clipcfg.get("pretrained", "openai"),
+             clipcfg.get("device", "cuda"))
+    cache_dir = clipcfg.get("cache_dir", "results/cache_clip")
+
+    # ---- §2a clean-CUB feature head (sanity target >=0.55) ----
+    cub_root = prepare_cub(cfg["cub"]["root"], download=cfg["cub"].get("download", False),
+                           url=cfg["cub"].get("url"))
+    clean_feats = {}
+    for sp in ("train",) + pool_splits:
+        cp = clean_cub_image_paths(bundle.paths[sp], cub_root)
+        clean_feats[sp] = clip_image_features(cp, *cargs, cache_dir, tag=f"cleancub_{sp}")
+        assert_l2_normalized(clean_feats[sp], tag=f"clean-CUB {sp} features")
+    feat_head = fit_logistic_head(clean_feats["train"], bundle.species["train"], C=C,
+                                  max_iter=max_iter, seed=seed)
+    clean_eval = clean_feats.get("d_test", clean_feats[pool_splits[-1]])
+    clean_eval_y = bundle.species.get("d_test", bundle.species[pool_splits[-1]])
+    feat_top1_cleancub = float(
+        (head_probs(feat_head, clean_eval, n_classes).argmax(1) == clean_eval_y).mean())
+    print(f"[e1 §2a] clean-CUB feature linear-probe top-1 = {feat_top1_cleancub:.3f} "
+          f"(sanity target >=0.55; 0.182 in the prior broken run)")
+
+    # ---- feature posteriors on the CONTAMINATED (composited) pool: the contaminated representation
+    for sp in pool_splits:
+        assert_l2_normalized(bundle.features[sp], tag=f"composited {sp} features")
+    feat_X = np.concatenate([bundle.features[s] for s in pool_splits], axis=0)
+    feat_probs = head_probs(feat_head, feat_X, n_classes).astype(np.float32)
+
+    # ---- §2b image-derived concept posteriors ----
+    sp_y_train = bundle.species["train"]
+    if concept_source == "cbm":
+        probes = fit_attribute_probe(bundle.features["train"], bundle.attrs["train"],
+                                     C=C, seed=seed)
+        cpt_train = predict_attribute_features(probes, bundle.features["train"])
+        cpt_pool = predict_attribute_features(
+            probes, np.concatenate([bundle.features[s] for s in pool_splits], axis=0))
+    elif concept_source == "zeroshot":
+        zs_train = clip_zeroshot_attribute_features(bundle.features["train"], bundle.attr_names, *cargs)
+        cpt_train = zs_train
+        cpt_pool = clip_zeroshot_attribute_features(
+            np.concatenate([bundle.features[s] for s in pool_splits], axis=0),
+            bundle.attr_names, *cargs)
+    else:  # gt_attrs_leaky (the prior, invalid path)
+        cpt_train = bundle.attrs["train"]
+        cpt_pool = np.concatenate([bundle.attrs[s] for s in pool_splits], axis=0)
+    cpt_head = fit_logistic_head(cpt_train, sp_y_train, C=C, max_iter=max_iter, seed=seed)
+    cpt_probs = head_probs(cpt_head, cpt_pool, n_classes).astype(np.float32)
+
+    # ---- assemble population (same shape as make_smoke_population) ----
+    species = np.concatenate([bundle.species[s] for s in pool_splits])
+    place = np.concatenate([bundle.place[s] for s in pool_splits])
+    s_type = bundle.species_type[species]
+    typ = typicality_group(place, s_type)
+    n_atyp = int((typ == ATYPICAL).sum())
+    info = dict(bundle.info)
+    info.update({"pool_n": int(len(species)), "pool_n_atypical": n_atyp,
+                 "pool_rho": realized_rho(typ), "concept_source": concept_source,
+                 "feat_top1_cleancub": feat_top1_cleancub})
+    if n_atyp < 200:
+        print(f"[e1] WARNING: thin atypical pool (n_atypical={n_atyp}); worst-group estimates at "
+              f"low ρ will be high-variance.")
+    return {
+        "species": species.astype(np.int64), "species_type": s_type.astype(np.int64),
+        "place": place.astype(np.int64), "typicality": typ,
+        "feat_probs": feat_probs, "cpt_probs": cpt_probs, "n_classes": n_classes,
+        "feat_top1": float((feat_probs.argmax(1) == species).mean()),
+        "cpt_top1": float((cpt_probs.argmax(1) == species).mean()),
+        "feat_top1_cleancub": feat_top1_cleancub, "concept_source": concept_source,
+        "synthetic": False, "info": info,
+    }
 
 
 # ======================================================================================

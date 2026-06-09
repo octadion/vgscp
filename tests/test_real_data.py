@@ -77,31 +77,72 @@ def test_build_binary_fdata_structure():
     assert acc > 0.6
 
 
-def test_load_real_population_from_injected_bundle(monkeypatch):
-    b = _planted_bundle(n_classes=10)
+def _l2(x):
+    return (x / np.linalg.norm(x, axis=1, keepdims=True)).astype(np.float32)
+
+
+def _inject_corrected_seams(monkeypatch, b):
+    """Monkeypatch the §2a/§2b CLIP+data seams so the CORRECTED load_real_population is exercised on
+    injected arrays (no open_clip / CUB images). Features must be L2-normalized (the §2a guard)."""
+    import data.cub_attributes as cub
+    for sp in b.features:
+        b.features[sp] = _l2(b.features[sp])
     monkeypatch.setattr(rd, "load_real_bundle", lambda cfg, seed, **kw: b)
-    cfg = {"dataset": {"n_classes": 10}, "heads": {}}
+    monkeypatch.setattr(cub, "prepare_cub", lambda *a, **kw: "DUMMY_CUB_ROOT")
+    # clean-CUB encode -> reuse the (L2-normalized) injected features for the matching split
+    def fake_clip(paths, *a, **kw):
+        sp = (kw.get("tag", "") or "").replace("cleancub_", "")
+        return b.features[sp]
+    monkeypatch.setattr(rd, "clip_image_features", fake_clip)
+
+
+def test_load_real_population_from_injected_bundle(monkeypatch):
+    """CORRECTED §2a/§2b path: clean-CUB feature head + image-derived concept, from an injected
+    bundle. Uses gt_attrs_leaky here so the concept head is the pure attrs->species probe (the CBM
+    predicted path is unit-tested separately in test_cbm_attribute_probe)."""
+    b = _planted_bundle(n_classes=10)
+    _inject_corrected_seams(monkeypatch, b)
+    cfg = {"dataset": {"n_classes": 10}, "heads": {}, "cub": {"root": "x"}, "clip": {},
+           "concept_source": "gt_attrs_leaky"}
     pop = cf.load_real_population(cfg, seed=0)
     pool_n = sum(len(b.species[s]) for s in ("d_learn", "d_cal", "d_test"))
     assert pop["species"].shape == (pool_n,)
     assert pop["feat_probs"].shape == (pool_n, 10)
     assert pop["cpt_probs"].shape == (pool_n, 10)
     assert not pop["synthetic"]
-    # typicality matches (place == species_type) by construction
+    assert pop["concept_source"] == "gt_attrs_leaky"
+    assert "feat_top1_cleancub" in pop          # §2a sanity number is reported
     expect = cf.typicality_group(pop["place"], pop["species_type"])
     assert np.array_equal(pop["typicality"], expect)
-    # heads learned the planted structure -> top-1 well above chance (0.1)
     assert pop["feat_top1"] > 0.4 and pop["cpt_top1"] > 0.4
     assert pop["info"]["pool_n_atypical"] >= 0
 
 
+def test_cbm_attribute_probe(monkeypatch):
+    """§2b CBM: the image-derived predicted-concept path assembles a valid population (predicted
+    attributes are noisier than GT, so we assert validity + above-chance, not a high bar)."""
+    b = _planted_bundle(n_classes=8, per_split=500)
+    _inject_corrected_seams(monkeypatch, b)
+    cfg = {"dataset": {"n_classes": 8}, "heads": {}, "cub": {"root": "x"}, "clip": {},
+           "concept_source": "cbm"}
+    pop = cf.load_real_population(cfg, seed=0)
+    assert pop["concept_source"] == "cbm"
+    assert pop["cpt_probs"].shape[1] == 8
+    assert np.allclose(pop["cpt_probs"].sum(1), 1.0, atol=1e-5)
+    assert pop["feat_top1"] > 0.4               # clean-CUB-trained feature head still competent
+
+
 def test_load_real_population_feeds_orchestrator(monkeypatch):
-    """End-to-end: an injected real bundle flows through the E1 orchestrator's per-seed runner."""
-    from scripts.run_cub200_frontier import run_seed
+    """End-to-end: an injected bundle flows through the CORRECTED unified-2x2 per-seed runner with
+    the COMPLETE 2x2 (4 cells)."""
+    from scripts.run_unified_2x2 import matched_class_subset, run_seed
     b = _planted_bundle(n_classes=12, per_split=600)
-    monkeypatch.setattr(rd, "load_real_bundle", lambda cfg, seed, **kw: b)
-    pop = cf.load_real_population({"dataset": {"n_classes": 12}, "heads": {}}, seed=0)
+    _inject_corrected_seams(monkeypatch, b)
+    pop = cf.load_real_population({"dataset": {"n_classes": 12}, "heads": {}, "cub": {"root": "x"},
+                                  "clip": {}, "concept_source": "cbm"}, seed=0)
+    matched, _ = matched_class_subset(pop)
     recs, diag = run_seed(pop, seed=0, rho_cal=0.95, rho_test_grid=[0.95, 0.7],
-                          n_cal=400, n_test=400, frac_cal=0.5, alpha=0.1)
-    assert len(recs) == 3 * 2 * 3  # schemes x rhos x score_fns
+                          n_cal=400, n_test=400, frac_cal=0.5, alpha=0.1,
+                          matched_classes=matched)
+    assert len(recs) == 4 * 2 * 3  # CELLS x rhos x score_fns (the complete 2x2)
     assert all(0.0 <= r["worst_cov"] <= 1.0 for r in recs)
