@@ -100,6 +100,72 @@ def assert_l2_normalized(X: np.ndarray, tag: str = "features", tol: float = 1e-2
 
 
 # ======================================================================================
+# §1 (v3) HARD ACCURACY GATE + standardized linear probe (the head-fix)
+# ======================================================================================
+GATE_MIN_TOP1 = 0.55             # §1.4: feature head clean-CUB top-1 must clear this (HARD HALT)
+BASELINE_MIN_TOP1 = 0.55         # §1.2: standard CLIP linear-probe sanity anchor
+
+
+class FeatureHeadGateError(RuntimeError):
+    """Raised when the feature head fails the §1.4 clean-CUB accuracy gate. The orchestrator catches
+    this, writes BLOCKERS_v3.md, and emits NO 2x2 and NO verdict (the v2 run wrongly proceeded)."""
+    def __init__(self, top1: float, diagnosis: str, where: str = "study head"):
+        self.top1 = float(top1)
+        self.diagnosis = diagnosis
+        self.where = where
+        super().__init__(f"[§1.4 GATE FAILED @ {where}] clean-CUB top-1={top1:.3f} < {GATE_MIN_TOP1}. "
+                         f"{diagnosis}")
+
+
+def fit_species_head(X_train: np.ndarray, y_train: np.ndarray, C: float = 1.0,
+                     max_iter: int = 5000, seed: int = 0):
+    """STANDARDIZED multinomial logistic head on frozen CLIP features (the §1.1 head-fix).
+
+    The v2 head fit a raw ``LogisticRegression`` directly on unit-norm CLIP features -- the standard
+    CLIP-linear-probe pitfall (ill-conditioned per-dim scales + under-convergence -> a ~0.16-accuracy
+    probe). The fix is the textbook recipe: z-score the features with TRAIN-only stats, then a
+    well-converged multinomial logistic. Returned as a sklearn Pipeline so ``probe_posteriors`` /
+    ``predict_proba`` / ``classes_`` work transparently."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    # (lbfgs defaults to multinomial for multiclass; don't pass the deprecated multi_class kwarg)
+    clf = make_pipeline(StandardScaler(),
+                        LogisticRegression(C=C, max_iter=max_iter, random_state=seed))
+    clf.fit(X_train, y_train)
+    return clf
+
+
+def top1(clf, X: np.ndarray, y: np.ndarray) -> float:
+    return float((clf.predict(X) == y).mean())
+
+
+def clip_linear_probe_baseline(X_train, y_train, X_eval, y_eval, C: float = 1.0,
+                               max_iter: int = 5000, seed: int = 0) -> dict:
+    """§1.2 KNOWN-GOOD baseline: a standard standardized CLIP linear probe on clean CUB-200. If this
+    cannot reach >=0.55 the bug is in feature extraction / label alignment (NOT the study head) --
+    the caller STOPS and reports. Returns {top1, passes, n_train, n_eval, n_classes}."""
+    clf = fit_species_head(X_train, y_train, C=C, max_iter=max_iter, seed=seed)
+    acc = top1(clf, X_eval, y_eval)
+    return {"top1": acc, "passes": bool(acc >= BASELINE_MIN_TOP1), "n_train": int(len(y_train)),
+            "n_eval": int(len(y_eval)), "n_classes": int(len(np.unique(y_train)))}
+
+
+def assert_label_alignment(paths_a: list[str], paths_b: list[str], tag: str = "") -> None:
+    """§1.1 guard against label/path desync: two path lists that should describe the SAME images
+    (row-for-row) must share basenames. Catches a reordered/misjoined cache before it silently
+    misaligns features and labels (a prime suspect for a ~chance head)."""
+    if len(paths_a) != len(paths_b):
+        raise ValueError(f"[label-align {tag}] length mismatch {len(paths_a)} vs {len(paths_b)}")
+    mism = [(a, b) for a, b in zip(paths_a, paths_b)
+            if os.path.basename(str(a)) != os.path.basename(str(b))]
+    if mism:
+        raise ValueError(f"[label-align {tag}] {len(mism)} row(s) have mismatched basenames, e.g. "
+                         f"{mism[0]} -- the feature cache and labels are DESYNCED.")
+
+
+# ======================================================================================
 # §2b: IMAGE-DERIVED (predicted) concept features -- the corrected concept source
 # ======================================================================================
 def fit_attribute_probe(X_feats_train: np.ndarray, attrs_train: np.ndarray, C: float = 1.0,
@@ -112,6 +178,8 @@ def fit_attribute_probe(X_feats_train: np.ndarray, attrs_train: np.ndarray, C: f
     predictor. Returns a list of (col_index, clf-or-const) we can vectorize over.
     """
     from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
 
     attrs_bin = (np.asarray(attrs_train) >= 0.5).astype(int)
     probes = []
@@ -120,7 +188,10 @@ def fit_attribute_probe(X_feats_train: np.ndarray, attrs_train: np.ndarray, C: f
         if yj.min() == yj.max():                 # constant attribute -> constant predictor
             probes.append(("const", float(yj.mean())))
             continue
-        clf = LogisticRegression(max_iter=max_iter, C=C, random_state=seed)
+        # standardized (§1.1 head-fix recipe) so the per-attribute probe doesn't under-fit on
+        # ill-conditioned unit-norm CLIP features
+        clf = make_pipeline(StandardScaler(),
+                            LogisticRegression(max_iter=max_iter, C=C, random_state=seed))
         clf.fit(X_feats_train, yj)
         probes.append(("clf", clf))
     return probes
@@ -305,29 +376,57 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
     bundle = load_real_bundle(cfg, seed)
     n_classes = bundle.n_classes
     hcfg = cfg.get("heads", {})
-    C, max_iter = float(hcfg.get("C", 1.0)), int(hcfg.get("max_iter", 2000))
+    # v3: standardized head defaults -> higher max_iter; C overridable
+    C, max_iter = float(hcfg.get("C", 1.0)), int(hcfg.get("max_iter", 5000))
     pool_splits = tuple(cfg.get("pool_splits", ("d_learn", "d_cal", "d_test")))
     clipcfg = cfg.get("clip", {})
     cargs = (clipcfg.get("model_name", "ViT-B-32"), clipcfg.get("pretrained", "openai"),
              clipcfg.get("device", "cuda"))
     cache_dir = clipcfg.get("cache_dir", "results/cache_clip")
 
-    # ---- §2a clean-CUB feature head (sanity target >=0.55) ----
+    # ---- §2a clean-CUB features (the feature head trains on CLEAN, not composited, images) ----
     cub_root = prepare_cub(cfg["cub"]["root"], download=cfg["cub"].get("download", False),
                            url=cfg["cub"].get("url"))
-    clean_feats = {}
+    clean_feats, clean_paths = {}, {}
     for sp in ("train",) + pool_splits:
         cp = clean_cub_image_paths(bundle.paths[sp], cub_root)
+        clean_paths[sp] = cp
         clean_feats[sp] = clip_image_features(cp, *cargs, cache_dir, tag=f"cleancub_{sp}")
         assert_l2_normalized(clean_feats[sp], tag=f"clean-CUB {sp} features")
-    feat_head = fit_logistic_head(clean_feats["train"], bundle.species["train"], C=C,
-                                  max_iter=max_iter, seed=seed)
+        # §1.1 guard: clean-CUB encode order must still match the species labels parsed from paths
+        assert_label_alignment(cp, bundle.paths[sp], tag=f"cleancub_{sp}")
+
     clean_eval = clean_feats.get("d_test", clean_feats[pool_splits[-1]])
     clean_eval_y = bundle.species.get("d_test", bundle.species[pool_splits[-1]])
-    feat_top1_cleancub = float(
-        (head_probs(feat_head, clean_eval, n_classes).argmax(1) == clean_eval_y).mean())
-    print(f"[e1 §2a] clean-CUB feature linear-probe top-1 = {feat_top1_cleancub:.3f} "
-          f"(sanity target >=0.55; 0.182 in the prior broken run)")
+
+    # ---- §1.2 KNOWN-GOOD baseline FIRST (standard standardized CLIP linear probe) ----
+    base = clip_linear_probe_baseline(clean_feats["train"], bundle.species["train"],
+                                      clean_eval, clean_eval_y, C=C, max_iter=max_iter, seed=seed)
+    print(f"[§1.2] known-good CLIP linear-probe baseline (clean CUB-200): top-1={base['top1']:.3f} "
+          f"(n_train={base['n_train']}, n_eval={base['n_eval']}, classes={base['n_classes']})")
+    if not base["passes"]:
+        raise FeatureHeadGateError(
+            base["top1"], where="§1.2 known-good baseline",
+            diagnosis=("A STANDARD standardized CLIP ViT-B/32 linear probe on CLEAN CUB-200 cannot "
+                       "reach 0.55 -- the bug is in FEATURE EXTRACTION or LABEL ALIGNMENT, not the "
+                       "study head. Check: CLIP preprocess parity train/test, species id parsing "
+                       "(0- vs 1-based), and the clean-CUB path mapping. Do NOT proceed."))
+
+    # ---- §2a/§1.1 study feature head (STANDARDIZED -- the head-fix) on clean CUB ----
+    feat_head = fit_species_head(clean_feats["train"], bundle.species["train"], C=C,
+                                 max_iter=max_iter, seed=seed)
+    feat_top1_cleancub = top1(feat_head, clean_eval, clean_eval_y)
+    print(f"[§2a] clean-CUB feature linear-probe top-1 = {feat_top1_cleancub:.3f} "
+          f"(GATE >= {GATE_MIN_TOP1}; 0.162 in the prior broken v2 run)")
+
+    # ---- §1.4 HARD GATE: halt before ANY 2x2/verdict if the head is sub-threshold ----
+    if feat_top1_cleancub < GATE_MIN_TOP1:
+        raise FeatureHeadGateError(
+            feat_top1_cleancub, where="§2a study head",
+            diagnosis=("Feature head below the 0.55 floor after the standardized-probe fix. The "
+                       "known-good baseline passed, so feature extraction is OK -- investigate the "
+                       "species-head config (C / max_iter / class coverage) before any re-run. "
+                       "Per §0b: NO 2x2 and NO verdict are produced."))
 
     # ---- feature posteriors on the CONTAMINATED (composited) pool: the contaminated representation
     for sp in pool_splits:
@@ -335,7 +434,7 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
     feat_X = np.concatenate([bundle.features[s] for s in pool_splits], axis=0)
     feat_probs = head_probs(feat_head, feat_X, n_classes).astype(np.float32)
 
-    # ---- §2b image-derived concept posteriors ----
+    # ---- §2b image-derived concept posteriors (standardized heads throughout) ----
     sp_y_train = bundle.species["train"]
     if concept_source == "cbm":
         probes = fit_attribute_probe(bundle.features["train"], bundle.attrs["train"],
@@ -352,7 +451,7 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
     else:  # gt_attrs_leaky (the prior, invalid path)
         cpt_train = bundle.attrs["train"]
         cpt_pool = np.concatenate([bundle.attrs[s] for s in pool_splits], axis=0)
-    cpt_head = fit_logistic_head(cpt_train, sp_y_train, C=C, max_iter=max_iter, seed=seed)
+    cpt_head = fit_species_head(cpt_train, sp_y_train, C=C, max_iter=max_iter, seed=seed)
     cpt_probs = head_probs(cpt_head, cpt_pool, n_classes).astype(np.float32)
 
     # ---- assemble population (same shape as make_smoke_population) ----
@@ -364,7 +463,8 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
     info = dict(bundle.info)
     info.update({"pool_n": int(len(species)), "pool_n_atypical": n_atyp,
                  "pool_rho": realized_rho(typ), "concept_source": concept_source,
-                 "feat_top1_cleancub": feat_top1_cleancub})
+                 "feat_top1_cleancub": feat_top1_cleancub, "baseline_top1": base["top1"],
+                 "gate_min_top1": GATE_MIN_TOP1, "gate_passed": True})
     if n_atyp < 200:
         print(f"[e1] WARNING: thin atypical pool (n_atypical={n_atyp}); worst-group estimates at "
               f"low ρ will be high-variance.")
@@ -374,7 +474,8 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
         "feat_probs": feat_probs, "cpt_probs": cpt_probs, "n_classes": n_classes,
         "feat_top1": float((feat_probs.argmax(1) == species).mean()),
         "cpt_top1": float((cpt_probs.argmax(1) == species).mean()),
-        "feat_top1_cleancub": feat_top1_cleancub, "concept_source": concept_source,
+        "feat_top1_cleancub": feat_top1_cleancub, "baseline_top1": base["top1"],
+        "gate_passed": True, "concept_source": concept_source,
         "synthetic": False, "info": info,
     }
 

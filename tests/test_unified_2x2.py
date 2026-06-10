@@ -4,11 +4,25 @@ sources. Pure-numpy / synthetic -- no CLIP or datasets needed."""
 import numpy as np
 import pytest
 
-from eval.unified_verdict import unified_verdict, R_MIN
+from eval.unified_verdict import combined_decision, unified_verdict, R_MIN
 from experiments import cub200_frontier as cf
+from experiments.real_data import FeatureHeadGateError, GATE_MIN_TOP1
 import scripts.run_unified_2x2 as u
 
 RHO = [0.95, 0.90, 0.80, 0.70, 0.60, 0.50]
+
+
+def _mk_records(score, gap_by_rho_and_cell, n_seeds=10):
+    """Build tidy records from {rho: {(rep,scheme): gap}} (tiny per-seed jitter so CIs are finite)."""
+    recs = []
+    for rho, cells in gap_by_rho_and_cell.items():
+        for (rep, scheme), gap in cells.items():
+            for s in range(n_seeds):
+                recs.append({"test_corr": rho, "score": score, "representation": rep,
+                             "scheme": scheme, "seed": s, "worst_cov": 0.9 - gap,
+                             "cov_gap": gap + 1e-4 * ((s % 3) - 1), "marg_cov": 0.9,
+                             "mean_set_size": 5.0})
+    return recs
 
 
 def _run(concept_kwargs, seeds=8, n_classes=30):
@@ -75,3 +89,50 @@ def test_concept_sources_run(src):
     assert pop["concept_source"] == src
     v = unified_verdict(recs, rho_cal=0.95, score="APS")
     assert v.n_shifted == 5
+
+
+# ---------------------------------------------------------------------------- v3 hardening
+def test_gate_halts_below_floor():
+    """§1.4: the orchestrator HALTS (FeatureHeadGateError) when the head is below the 0.55 floor."""
+    u.enforce_feature_gate({"feat_top1": 0.70}, "smoke")            # OK, no raise
+    with pytest.raises(FeatureHeadGateError):
+        u.enforce_feature_gate({"feat_top1": 0.162}, "smoke")       # the v2 broken-head value
+    with pytest.raises(FeatureHeadGateError):
+        u.enforce_feature_gate({"feat_top1_cleancub": 0.40}, "real")
+
+
+def test_degraded_smoke_head_halts_run():
+    """End-to-end: a degraded synthetic head makes run() raise (no verdict computed)."""
+    cfg = {"smoke": {"n": 5000, "n_classes": 30, "feat_margin_typical": 0.2,
+                     "feat_margin_atypical": 0.1, "feat_spurious_kappa": 0.0}}
+    with pytest.raises(FeatureHeadGateError):
+        u.run(cfg, mode="smoke", n_seeds=3, concept_source="cbm")
+
+
+def test_verdict_requires_hardest_shift():
+    """v3 per-score GREEN needs the LARGEST shift (rho=0.5) to recover, not just a majority."""
+    # recover everywhere EXCEPT rho=0.5 (cpt gap ~ feat gap there -> R~0)
+    cells = {}
+    for rho in RHO:
+        recovers = rho > 0.5      # fails only at the hardest shift
+        cells[rho] = {("feature", "split"): 0.70,
+                      ("feature", "Mondrian"): 0.05,
+                      ("concept", "split"): 0.15 if recovers else 0.69,
+                      ("concept", "Mondrian"): 0.04}
+    v = unified_verdict(_mk_records("APS", cells), rho_cal=0.95, score="APS")
+    assert v.majority and not v.hardest_recovers and not v.green   # majority alone is NOT enough
+
+
+def test_combined_requires_two_of_three_scores():
+    """v3 headline GREEN requires per-score GREEN for >= 2 of 3 score functions."""
+    good = {rho: {("feature", "split"): 0.70, ("feature", "Mondrian"): 0.05,
+                  ("concept", "split"): 0.15, ("concept", "Mondrian"): 0.04} for rho in RHO}
+    bad = {rho: {("feature", "split"): 0.70, ("feature", "Mondrian"): 0.05,
+                 ("concept", "split"): 0.69, ("concept", "Mondrian"): 0.04} for rho in RHO}
+    vg = lambda c, s: unified_verdict(_mk_records(s, c), rho_cal=0.95, score=s)
+    # 1/3 green -> FALLBACK
+    d1 = combined_decision({"APS": vg(good, "APS"), "RAPS": vg(bad, "RAPS"), "THR": vg(bad, "THR")})
+    assert not d1["green"] and d1["n_green_scores"] == 1
+    # 2/3 green -> GREEN
+    d2 = combined_decision({"APS": vg(good, "APS"), "RAPS": vg(good, "RAPS"), "THR": vg(bad, "THR")})
+    assert d2["green"] and d2["n_green_scores"] == 2

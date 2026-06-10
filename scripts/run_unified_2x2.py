@@ -49,8 +49,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from conformal import group_robust
 from conformal import scores as cscores
 from conformal.split_conformal import build_sets, conformal_quantile, set_sizes
-from eval.unified_verdict import PRIMARY_SCORE, unified_verdict
+from eval.unified_verdict import PRIMARY_SCORE, combined_decision, unified_verdict
 from experiments import cub200_frontier as cf
+from experiments.real_data import GATE_MIN_TOP1, FeatureHeadGateError
 
 SCORE_FNS = ("APS", "RAPS", "THR")
 DEFAULT_RHO_TEST = [0.95, 0.90, 0.80, 0.70, 0.60, 0.50]
@@ -180,11 +181,15 @@ def run(cfg, mode, n_seeds, concept_source, seeds=None):
     seeds = seeds if seeds is not None else list(range(n_seeds))
 
     if mode == "smoke":
+        smk = cfg.get("smoke", {})
+        sc_kw = {}
+        # optional feature-margin overrides so a DEGRADED-head smoke can exercise the §1.4 halt path
+        for k in ("feat_margin_typical", "feat_margin_atypical", "feat_spurious_kappa"):
+            if k in smk:
+                sc_kw[k] = float(smk[k])
         sc = cf.SmokeConfig(
-            n=int(cfg.get("smoke", {}).get("n", 9000)),
-            n_classes=int(cfg.get("smoke", {}).get("n_classes", 40)),
-            concept_source=concept_source,
-            seed=int(cfg.get("smoke", {}).get("pop_seed", 12345)))
+            n=int(smk.get("n", 9000)), n_classes=int(smk.get("n_classes", 40)),
+            concept_source=concept_source, seed=int(smk.get("pop_seed", 12345)), **sc_kw)
         pop = cf.make_smoke_population(sc)
         n_cal = int(cfg.get("smoke", {}).get("n_cal", 2000))
         n_test = int(cfg.get("smoke", {}).get("n_test", 2000))
@@ -194,6 +199,11 @@ def run(cfg, mode, n_seeds, concept_source, seeds=None):
         pop = cf.load_real_population(cfg, seed=int(cfg.get("pop_seed", 0)))
         n_cal = int(cfg.get("shift", {}).get("n_cal", 3000))
         n_test = int(cfg.get("shift", {}).get("n_test", 3000))
+
+    # §1.4 HARD GATE (v3): the head must clear the floor BEFORE any 2x2/verdict. Real mode already
+    # raised inside assemble_e1_population; this re-checks uniformly (and catches the smoke path, so a
+    # degraded synthetic head halts here too rather than producing a meaningless verdict).
+    enforce_feature_gate(pop, mode)
 
     matched_classes, acc_info = matched_class_subset(pop)
 
@@ -206,12 +216,28 @@ def run(cfg, mode, n_seeds, concept_source, seeds=None):
 
     verdicts = {sc_: unified_verdict(all_records, rho_cal=rho_cal, alpha=alpha, score=sc_)
                 for sc_ in SCORE_FNS}
-    return {"records": all_records, "verdicts": verdicts, "diags": diags, "mode": mode,
-            "seeds": seeds, "rho_cal": rho_cal, "rho_test_grid": rho_test_grid, "alpha": alpha,
-            "n_cal": n_cal, "n_test": n_test, "n_classes": pop["n_classes"],
+    combined = combined_decision(verdicts)        # v3: headline = GREEN only if >=2/3 score fns GREEN
+    return {"records": all_records, "verdicts": verdicts, "combined": combined, "diags": diags,
+            "mode": mode, "seeds": seeds, "rho_cal": rho_cal, "rho_test_grid": rho_test_grid,
+            "alpha": alpha, "n_cal": n_cal, "n_test": n_test, "n_classes": pop["n_classes"],
             "concept_source": pop.get("concept_source", concept_source),
             "feat_top1": pop.get("feat_top1"), "cpt_top1": pop.get("cpt_top1"),
+            "feat_top1_cleancub": pop.get("feat_top1_cleancub"),
+            "baseline_top1": pop.get("baseline_top1"),
             "acc_control": acc_info, "pop_info": pop.get("info")}
+
+
+def enforce_feature_gate(pop, mode):
+    """§1.4/§0b HARD HALT. Gate on clean-CUB top-1 (real) or the synthetic head top-1 (smoke). Raise
+    FeatureHeadGateError (-> orchestrator writes BLOCKERS_v3 and emits NO verdict) if below floor."""
+    gate_top1 = pop.get("feat_top1_cleancub")
+    if gate_top1 is None:
+        gate_top1 = pop.get("feat_top1")          # smoke proxy
+    if gate_top1 is not None and gate_top1 < GATE_MIN_TOP1:
+        raise FeatureHeadGateError(
+            gate_top1, where=f"{mode} orchestrator gate",
+            diagnosis=("Feature head top-1 below the 0.55 floor; a verdict here would be computed on "
+                       "a broken head (the v2 error). Halting per §0b: NO 2x2 and NO verdict."))
 
 
 # ======================================================================================
@@ -321,10 +347,11 @@ def make_figures(df, fig_dir, payload, score=PRIMARY_SCORE):
 def _verdict_json(v):
     return {"label": v.label, "green": v.green, "score": v.score, "alpha": v.alpha,
             "rho_cal": v.rho_cal, "n_shifted": v.n_shifted, "n_recovered": v.n_recovered,
+            "majority": v.majority, "hardest_recovers": v.hardest_recovers,
             "sweep_mean_R": v.sweep_mean_R, "sweep_mean_mech_feat": v.sweep_mean_mech_feat,
             "sweep_mean_mech_cpt": v.sweep_mean_mech_cpt, "rationale": v.rationale,
-            "per_rho": [{"rho_test": r.rho_test, "shifted": r.shifted, "R": r.R,
-                         "repr_significant": r.repr_significant, "recovers": r.recovers,
+            "per_rho": [{"rho_test": r.rho_test, "shifted": r.shifted, "is_hardest": r.is_hardest,
+                         "R": r.R, "repr_significant": r.repr_significant, "recovers": r.recovers,
                          "gap_feat_split": r.gap_feat_split["mean"],
                          "gap_cpt_split": r.gap_cpt_split["mean"],
                          "gap_feat_mond": r.gap_feat_mond["mean"],
@@ -336,12 +363,47 @@ def _verdict_json(v):
 def write_json(path, payload, eff):
     out = {k: payload[k] for k in ("mode", "seeds", "rho_cal", "rho_test_grid", "alpha", "n_cal",
                                    "n_test", "n_classes", "concept_source", "feat_top1", "cpt_top1",
-                                   "acc_control")}
+                                   "feat_top1_cleancub", "baseline_top1", "acc_control")}
+    out["combined"] = payload["combined"]
     out["verdicts"] = {s: _verdict_json(v) for s, v in payload["verdicts"].items()}
     out["efficiency"] = eff
     out["diags"] = {str(k): v for k, v in payload["diags"].items()}
     with open(path, "w") as f:
         json.dump(out, f, indent=2, default=float)
+
+
+def write_blockers_v3(err: FeatureHeadGateError, args):
+    """§0b mandatory: on a gate failure, write BLOCKERS_v3.md and produce NO 2x2 / NO verdict."""
+    txt = f"""# BLOCKERS v3 — §1.4 ACCURACY GATE FAILED → run HALTED (no 2×2, no verdict)
+
+**Date:** {datetime.now(timezone.utc).date()} · **Run:** `run_unified_2x2` mode=\
+{'smoke' if args.smoke else 'real'} concept_source={args.concept_source}
+
+## Why this run produced no result
+The feature head did not clear the pre-committed **§1.4 hard accuracy gate** (clean-CUB top-1 ≥ \
+{GATE_MIN_TOP1}). Per spec v3 §0b the run **halts here and emits NO 2×2 and NO verdict** — a verdict
+on a sub-threshold head is a reporting error, not a result (this is exactly the v2 mistake, where a
+verdict was computed at top-1 = 0.162).
+
+- **Gate location:** {err.where}
+- **Observed clean-CUB top-1:** **{err.top1:.3f}**  (required ≥ {GATE_MIN_TOP1})
+
+## Diagnosis
+{err.diagnosis}
+
+## Diagnostic checklist (run spec §1.1, in order)
+1. Features L2-normalized before the head, with the SAME normalization at train and test.
+2. Species-id parsing consistent (0- vs 1-based CUB ids) across the train/cal/test feature caches.
+3. CLIP preprocessing parity (resize/crop/interpolation) between the train and test feature caches.
+4. Head trained on the full `train` split (n≈4795), not `d_learn` (n≈1748); solver converged.
+5. Identical class set across train/cal/test.
+
+## What to do
+Fix the cause above, re-run; the gate re-checks automatically. Do NOT lower the gate to pass.
+Return for human review.
+"""
+    with open("BLOCKERS_v3.md", "w", encoding="utf-8") as f:
+        f.write(txt)
 
 
 # ======================================================================================
@@ -353,10 +415,12 @@ def _pm(m, s):
 
 def write_report(path, df, payload, eff, fig_paths):
     v = payload["verdicts"][PRIMARY_SCORE]
+    comb = payload["combined"]
     mode, src = payload["mode"], payload["concept_source"]
     f1, c1 = payload["feat_top1"], payload["cpt_top1"]
+    fcc, base = payload.get("feat_top1_cleancub"), payload.get("baseline_top1")
     lines = [
-        "# Unified 2×2 — CORRECTED coverage / gap run (study paper v2)",
+        "# Unified 2×2 — HARDENED coverage / gap run (study paper v3)",
         "",
         f"**Date:** {datetime.now(timezone.utc).date()} · **Run mode:** {mode} · "
         f"**Seeds:** {len(payload['seeds'])} · **α={payload['alpha']:g}** · "
@@ -366,33 +430,53 @@ def write_report(path, df, payload, eff, fig_paths):
     ]
     if mode == "smoke":
         lines += ["> ⚠️ **SMOKE (synthetic) run** — fabricated CUB-200-like population validating the "
-                  "corrected construct→calibrate→4-cell→verdict pipeline on CPU. Real numbers come "
-                  "from the Colab/GPU cached-feature run. **Not a scientific result.**", ""]
+                  "hardened gate→4-cell→verdict pipeline on CPU. Real numbers come from the Colab/GPU "
+                  "cached-feature run. **Not a scientific result.**", ""]
     lines += [
-        "## Pre-committed claim (eval/unified_verdict.py — fixed before any numbers)",
-        "Group-free substitution: an invariant (predicted) concept score under **pooled split** "
-        "recovers fraction `R = (gap[feat,split]−gap[cpt,split]) / (gap[feat,split]−gap[feat,Mondrian])` "
-        "of the worst-group gap reduction that the **Mondrian mechanism** gives. GREEN iff R≥0.5 at a "
-        "majority of shifted ρ with the paired gap[feat,split]−gap[cpt,split] CI excluding 0. "
-        "Kill-switch fallback: *\"group-conditional calibration is the binding lever; the "
-        "representation contributes little beyond efficiency.\"*",
+        "## §1.4 accuracy gate (HARD HALT — checked before any 2×2/verdict)",
+        f"- §1.2 known-good CLIP linear-probe baseline (clean CUB-200): "
+        f"**{base:.3f}**" if base is not None else "- §1.2 baseline: (real run)",
+        f"- §2a study feature head, clean-CUB top-1: **{fcc:.3f}** "
+        f"(gate ≥ {GATE_MIN_TOP1}; **PASSED** — else this run would have HALTED with no verdict)"
+        if fcc is not None else
+        f"- feature head clean-CUB top-1: (real run; smoke proxy feat_top1={f1:.3f} ≥ {GATE_MIN_TOP1})",
         "",
-        "## Classifier heads (top-1 accuracy) — §2a",
-        f"- feature-space head: **{f1:.3f}**" if f1 is not None else "- feature-space head: (real run)",
+        "## Pre-committed HARDENED claim (eval/unified_verdict.py — fixed before any numbers)",
+        "Group-free substitution: an invariant (predicted) concept score under **pooled split** "
+        "recovers fraction `R = (gap[feat,split]−gap[cpt,split]) / (gap[feat,split]−gap[feat,Mondrian])`. "
+        "**v3 per-score GREEN** iff R≥0.5 (paired CI≠0) at a majority of shifted ρ **AND at the largest "
+        "shift ρ=0.5**. **v3 headline GREEN** iff per-score GREEN for **≥2/3** score functions. "
+        "Kill-switch fallback: *\"group-conditional calibration is the binding lever for worst-group "
+        "coverage; an invariant representation does not robustly substitute for it.\"*",
+        "",
+        "## Classifier heads (top-1 accuracy)",
+        f"- feature-space head (pool): **{f1:.3f}**" if f1 is not None else
+        "- feature-space head: (real run)",
         f"- concept-space head (`{src}`): **{c1:.3f}**" if c1 is not None else
         "- concept-space head: (real run)",
         "",
-        f"## Verdict (primary score {PRIMARY_SCORE}): **{v.label}**",
-        f"{v.rationale}",
+        f"## HEADLINE verdict (v3 combined, ≥{comb['min_required']}/3 scores): **{comb['label']}**",
+        f"{comb['rationale']}",
         "",
-        "### Recovered fraction R and mechanism main effect, by ρ_test (APS)",
+        "| score | per-score verdict | majority recovers | ρ=0.5 recovers | sweep R |",
+        "|---|---|---|---|---|",
+    ]
+    for s in SCORE_FNS:
+        vs = payload["verdicts"][s]
+        lines.append(f"| {s} | {'GREEN' if vs.green else 'FALLBACK'} | "
+                     f"{'yes' if vs.majority else 'no'} | "
+                     f"{'yes' if vs.hardest_recovers else 'NO'} | {vs.sweep_mean_R:.2f} |")
+    lines += [
+        "",
+        f"### Recovered fraction R and mechanism main effect, by ρ_test ({PRIMARY_SCORE})",
         "| ρ_test | gap feat+split | gap cpt+split | gap feat+Mond | R | repr.CI≠0 | recovers |",
         "|---|---|---|---|---|---|---|",
     ]
     for r in v.per_rho:
         if not r.shifted:
             continue
-        lines.append(f"| {r.rho_test:.2f} | {r.gap_feat_split['mean']:.3f} | "
+        rho_lbl = f"**{r.rho_test:.2f}** (hardest)" if r.is_hardest else f"{r.rho_test:.2f}"
+        lines.append(f"| {rho_lbl} | {r.gap_feat_split['mean']:.3f} | "
                      f"{r.gap_cpt_split['mean']:.3f} | {r.gap_feat_mond['mean']:.3f} | "
                      f"{r.R:.2f} | {'yes' if r.repr_significant else 'no'} | "
                      f"{'✓' if r.recovers else '·'} |")
@@ -467,7 +551,15 @@ def main():
         cfg = load_config(args.config)
 
     mode = "smoke" if args.smoke else "real"
-    payload = run(cfg, mode=mode, n_seeds=args.seeds, concept_source=args.concept_source)
+    # §1.4/§0b HARD HALT: if the feature head fails the gate, write BLOCKERS_v3 and emit NO 2x2/verdict
+    try:
+        payload = run(cfg, mode=mode, n_seeds=args.seeds, concept_source=args.concept_source)
+    except FeatureHeadGateError as e:
+        write_blockers_v3(e, args)
+        print(f"[u2x2] §1.4 GATE FAILED: {e}")
+        print("[u2x2] HALTED per §0b — wrote BLOCKERS_v3.md; NO 2×2 and NO verdict produced.")
+        sys.exit(2)
+
     df = pd.DataFrame(payload["records"])
     eff = efficiency_summary(df, payload)
 
@@ -477,13 +569,18 @@ def main():
     write_json(os.path.join(args.out, "unified_results.json"), payload, eff)
     write_report(os.path.join(args.out, "UNIFIED_REPORT.md"), df, payload, eff, fig_paths)
 
-    v = payload["verdicts"][PRIMARY_SCORE]
+    comb = payload["combined"]
     print(f"[u2x2] mode={mode} concept={args.concept_source} seeds={len(payload['seeds'])} -> {args.out}")
-    print(f"[u2x2] heads top-1: feature={payload['feat_top1']}, concept={payload['cpt_top1']}")
-    print(f"[u2x2] VERDICT ({PRIMARY_SCORE}): {v.label}")
-    print(f"[u2x2]   {v.rationale}")
+    print(f"[u2x2] gate: clean-CUB feat top-1={payload.get('feat_top1_cleancub') or payload['feat_top1']:.3f} "
+          f">= {GATE_MIN_TOP1} (PASSED) | heads: feature={payload['feat_top1']:.3f} "
+          f"concept={payload['cpt_top1']:.3f}")
+    for s in SCORE_FNS:
+        vs = payload["verdicts"][s]
+        print(f"[u2x2]   {s}: {'GREEN' if vs.green else 'FALLBACK'} "
+              f"(majority={vs.majority}, ρ=0.5 recovers={vs.hardest_recovers}, R={vs.sweep_mean_R:.2f})")
+    print(f"[u2x2] HEADLINE (v3 ≥{comb['min_required']}/3): {comb['label']} — {comb['rationale']}")
     if mode == "smoke":
-        print("[u2x2] SMOKE OK — corrected pipeline validated on synthetic. Real numbers: Colab/GPU.")
+        print("[u2x2] SMOKE OK — hardened pipeline validated on synthetic. Real numbers: Colab/GPU.")
 
 
 if __name__ == "__main__":

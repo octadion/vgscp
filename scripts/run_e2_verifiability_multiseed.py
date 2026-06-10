@@ -210,18 +210,33 @@ def run(cfg, mode, n_seeds):
         # computed from the SAME cached features (no image re-encode). Seeds then vary only the
         # verifier init + signal splits.
         from experiments.real_data import (build_binary_fdata, clip_text_concepts,
-                                            load_real_bundle)
+                                            clip_zeroshot_attribute_features, fit_attribute_probe,
+                                            load_real_bundle, predict_attribute_features)
         pop_seed = int(cfg.get("pop_seed", 0))
         bundle = load_real_bundle(cfg, seed=pop_seed)
         fdata = build_binary_fdata(bundle, cfg, seed=pop_seed, with_ensemble_mc=True)
         clipcfg = cfg.get("clip", {})
+        cargs = (clipcfg.get("model_name", "ViT-B-32"), clipcfg.get("pretrained", "openai"),
+                 clipcfg.get("device", "cuda"))
+        # §3 (v3): the concept channel is IMAGE-DERIVED (predicted), NOT the leaky ground-truth MTurk
+        # attributes. Same `cbm` source as the unified 2x2 -> the verifiability falsification rests on
+        # honest concepts. (`zeroshot`/`gt_attrs_leaky` selectable; gt_attrs_leaky is the prior leak.)
+        concept_source = cfg.get("concept_source", "cbm")
+        if concept_source == "cbm":
+            probes = fit_attribute_probe(bundle.features["train"], bundle.attrs["train"], seed=pop_seed)
+            attr = {sp: predict_attribute_features(probes, bundle.features[sp]) for sp in SPLITS}
+        elif concept_source == "zeroshot":
+            attr = {sp: clip_zeroshot_attribute_features(bundle.features[sp], bundle.attr_names, *cargs)
+                    for sp in SPLITS}
+        else:  # gt_attrs_leaky — the prior, invalid path (kept only as a flagged demo)
+            print("[e2 §3] WARNING: concept_source='gt_attrs_leaky' uses GROUND-TRUTH attributes "
+                  "(the prior leak); not the honest headline.")
+            attr = {sp: bundle.attrs[sp] for sp in SPLITS}
         prompts = clipcfg.get("scene_concept_bank", DEFAULT_SCENE)
-        scene = {sp: clip_text_concepts(bundle.features[sp], clipcfg.get("model_name", "ViT-B-32"),
-                                        clipcfg.get("pretrained", "openai"),
-                                        clipcfg.get("device", "cuda"), prompts) for sp in SPLITS}
+        scene = {sp: clip_text_concepts(bundle.features[sp], *cargs, prompts) for sp in SPLITS}
         concept_sets = {
-            "attributes_only": {sp: bundle.attrs[sp] for sp in SPLITS},
-            "mixed": {sp: np.concatenate([bundle.attrs[sp], scene[sp]], axis=1) for sp in SPLITS}}
+            "attributes_only": {sp: attr[sp] for sp in SPLITS},
+            "mixed": {sp: np.concatenate([attr[sp], scene[sp]], axis=1) for sp in SPLITS}}
         for s in range(n_seeds):
             for space in SPACES:
                 rows.extend(evaluate_space_seed(space, concept_sets[space], fdata, cfg, seed=s,
@@ -282,6 +297,9 @@ def main():
     ap.add_argument("--config", default="configs/premise2_waterbirds.yaml")
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--seeds", type=int, default=10)
+    ap.add_argument("--concept-source", default="cbm",
+                    choices=("cbm", "zeroshot", "gt_attrs_leaky"),
+                    help="§3: image-derived predicted concept channel (cbm) vs the prior leak")
     ap.add_argument("--out", default="results/e2")
     args = ap.parse_args()
 
@@ -290,6 +308,7 @@ def main():
     else:
         cfg = {"common": load_config("configs/common.yaml").get("common", {})}
     cfg.setdefault("common", load_config("configs/common.yaml").get("common", {}))
+    cfg["concept_source"] = args.concept_source     # §3: real branch uses predicted concepts
 
     mode = "smoke" if args.smoke else "real"
     payload = run(cfg, mode=mode, n_seeds=args.seeds)

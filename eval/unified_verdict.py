@@ -19,15 +19,19 @@ Primary claim (GROUP-FREE SUBSTITUTION):
   reference lever). R in [0,1] => the representation substitute recovers that fraction of the
   mechanism's benefit; R>=1 => it matches or beats the mechanism.
 
-  GREEN (claim MET) iff, on the primary score:
-    * R(rho) >= R_MIN (0.5) at a MAJORITY of shifted rho (rho_test < rho_cal), AND
-    * the paired across-seed 95% CI for the difference [gap(feat,split) - gap(cpt,split)] EXCLUDES 0
-      at those rho (i.e. the concept score's gap reduction is significant, not noise).
+  v3 HARDENED criterion (tightened after a fragile, score-function-dependent v2 pass; can only make
+  GREEN HARDER, never easier). PER-SCORE GREEN iff:
+    * R(rho) >= R_MIN (0.5) with the paired across-seed 95% CI for [gap(feat,split)-gap(cpt,split)]
+      excluding 0 at a MAJORITY of shifted rho (rho_test < rho_cal), AND
+    * the SAME holds at the LARGEST shift (rho_test = 0.5) -- v2 passed only by failing at the two
+      largest shifts, exactly where the spurious effect bites hardest; this closes that hole.
+  COMBINED (headline) GREEN iff the per-score verdict is GREEN for >= 2 of 3 score functions
+  {APS, RAPS, THR} (see ``combined_decision``) -- robustness across score functions, not APS alone.
 
   KILL-SWITCH (be willing to kill the NEW claim too): otherwise the paper falls back to
-    "group-conditional calibration is the binding lever for worst-group coverage; the representation
-     contributes little beyond efficiency."
-  Report it either way.
+    "group-conditional calibration is the binding lever for worst-group coverage; an invariant
+     representation does not robustly substitute for it under the strengthened criterion."
+  Report it either way. The verdict is evaluated ONLY on a feature head that cleared the §1.4 gate.
 
 Also reported plainly (NOT suppressed -- it is part of the honest 2x2):
   * the MECHANISM MAIN EFFECT = Mondrian's gap reduction on each representation
@@ -90,6 +94,7 @@ class RhoSubstitution:
     R: float                         # recovered fraction (ratio of mean gap reductions)
     repr_significant: bool           # paired CI for d_repr excludes 0
     recovers: bool                   # R >= R_MIN AND repr_significant (per-rho GREEN ingredient)
+    is_hardest: bool = False         # the largest shift (min shifted rho, e.g. rho_test=0.5)
 
 
 @dataclass
@@ -102,12 +107,15 @@ class UnifiedVerdict:
     per_rho: list = field(default_factory=list)
     n_shifted: int = 0
     n_recovered: int = 0
+    majority: bool = False                       # R>=R_MIN at a majority of shifted rho
+    hardest_recovers: bool = False               # R>=R_MIN at the LARGEST shift (rho_test=0.5) [v3]
     sweep_mean_R: float = float("nan")
     sweep_mean_mech_feat: float = float("nan")   # honest mechanism main effect (feature)
     sweep_mean_mech_cpt: float = float("nan")
     rationale: str = ""
     fallback_claim: str = ("group-conditional calibration is the binding lever for worst-group "
-                           "coverage; the representation contributes little beyond efficiency")
+                           "coverage; an invariant representation does not robustly substitute for "
+                           "it under the strengthened criterion")
 
 
 def unified_verdict(records: list, rho_cal: float, alpha: float = 0.1,
@@ -118,8 +126,11 @@ def unified_verdict(records: list, rho_cal: float, alpha: float = 0.1,
     cov_gap, marg_cov, mean_set_size. Returns a ``UnifiedVerdict``.
     """
     rhos = sorted({r["test_corr"] for r in records if r["score"] == score})
+    shifted_rhos = [r for r in rhos if r < rho_cal - 1e-9]
+    hardest_rho = min(shifted_rhos) if shifted_rhos else None      # largest shift, e.g. rho_test=0.5
     per_rho, R_means, mech_f_means, mech_c_means = [], [], [], []
     n_shifted = n_rec = 0
+    hardest_recovers = False
     for rho in rhos:
         gfs = _cell(records, score, *FEAT_SPLIT, rho, "cov_gap")
         gcs = _cell(records, score, *CPT_SPLIT, rho, "cov_gap")
@@ -138,6 +149,7 @@ def unified_verdict(records: list, rho_cal: float, alpha: float = 0.1,
         repr_significant = bool(d_repr["n"] > 0 and d_repr["lo"] > 0)   # CI excludes 0, concept tighter
         shifted = rho < rho_cal - 1e-9
         recovers = bool(shifted and np.isfinite(R) and R >= R_MIN and repr_significant)
+        is_hardest = bool(hardest_rho is not None and abs(rho - hardest_rho) < 1e-9)
         if shifted:
             n_shifted += 1
             if np.isfinite(R):
@@ -146,35 +158,74 @@ def unified_verdict(records: list, rho_cal: float, alpha: float = 0.1,
             mech_c_means.append(mech_cpt["mean"])
             if recovers:
                 n_rec += 1
+            if is_hardest:
+                hardest_recovers = recovers
         per_rho.append(RhoSubstitution(
             rho_test=float(rho), shifted=shifted,
             gap_feat_split=_agg(gfs), gap_cpt_split=_agg(gcs),
             gap_feat_mond=_agg(gfm), gap_cpt_mond=_agg(gcm),
             d_repr=d_repr, mech_feat=mech_feat, mech_cpt=mech_cpt,
-            R=R, repr_significant=repr_significant, recovers=recovers))
+            R=R, repr_significant=repr_significant, recovers=recovers, is_hardest=is_hardest))
 
     sweep_R = float(np.mean(R_means)) if R_means else float("nan")
     sweep_mf = float(np.mean(mech_f_means)) if mech_f_means else float("nan")
     sweep_mc = float(np.mean(mech_c_means)) if mech_c_means else float("nan")
     majority = n_shifted > 0 and n_rec * 2 > n_shifted
-    green = bool(majority)
+    # v3 per-score GREEN: majority AND the LARGEST shift (rho_test=0.5) must recover. The v2 pass was
+    # fragile precisely because it failed at the two largest shifts -- this closes that hole.
+    green = bool(majority and hardest_recovers)
+    hrho = hardest_rho if hardest_rho is not None else float("nan")
     if green:
         label = "GREEN (group-free substitution holds)"
         rationale = (
-            f"An invariant concept score under pooled split recovers a majority-of-shifted-rho "
-            f"fraction R>={R_MIN} of the gap reduction that the Mondrian mechanism gives on the "
-            f"feature score ({n_rec}/{n_shifted} shifted rho, sweep-mean R={sweep_R:.2f}), with the "
-            f"paired gap[feat,split]-gap[cpt,split] CI excluding 0. Honest mechanism main effect "
-            f"(reported, not suppressed): Mondrian cuts the gap by {sweep_mf:+.3f} (feature) / "
-            f"{sweep_mc:+.3f} (concept) on average.")
+            f"An invariant concept score under pooled split recovers fraction R>={R_MIN} of the "
+            f"Mondrian-mechanism gap reduction at a MAJORITY of shifted rho ({n_rec}/{n_shifted}) AND "
+            f"at the LARGEST shift rho={hrho:g} (sweep-mean R={sweep_R:.2f}), with the paired "
+            f"gap[feat,split]-gap[cpt,split] CI excluding 0. Honest mechanism main effect (reported, "
+            f"not suppressed): Mondrian cuts the gap by {sweep_mf:+.3f} (feature) / {sweep_mc:+.3f} "
+            f"(concept) on average.")
     else:
+        why = []
+        if not majority:
+            why.append(f"only {n_rec}/{n_shifted} shifted rho recover")
+        if not hardest_recovers:
+            why.append(f"the largest shift rho={hrho:g} FAILS to recover")
         label = "FALLBACK (kill-switch)"
         rationale = (
-            f"Group-free substitution does NOT hold: R>={R_MIN} with a significant gap reduction at "
-            f"only {n_rec}/{n_shifted} shifted rho (sweep-mean R={sweep_R:.2f}). Falling back to: "
+            f"Group-free substitution does NOT hold under the strengthened criterion ("
+            f"{'; '.join(why)}; sweep-mean R={sweep_R:.2f}). Falling back to: "
             f"\"{UnifiedVerdict.fallback_claim}\". Mechanism main effect: Mondrian cuts the gap by "
             f"{sweep_mf:+.3f} (feature) / {sweep_mc:+.3f} (concept) on average -- the binding lever.")
     return UnifiedVerdict(label=label, green=green, score=score, alpha=alpha, rho_cal=rho_cal,
                           per_rho=per_rho, n_shifted=n_shifted, n_recovered=n_rec,
+                          majority=majority, hardest_recovers=hardest_recovers,
                           sweep_mean_R=sweep_R, sweep_mean_mech_feat=sweep_mf,
                           sweep_mean_mech_cpt=sweep_mc, rationale=rationale)
+
+
+# ======================================================================================
+# v3 COMBINED decision across score functions (GREEN requires >= 2 of 3)
+# ======================================================================================
+MIN_GREEN_SCORES = 2              # of {APS, RAPS, THR}
+
+
+def combined_decision(verdicts_by_score: dict) -> dict:
+    """Combine per-score verdicts into the v3 headline decision.
+
+    v3 GREEN requires the per-score verdict to be GREEN for >= MIN_GREEN_SCORES of {APS,RAPS,THR}
+    (robustness across score functions), where each per-score GREEN already requires the largest
+    shift to recover. Otherwise FALLBACK. Returns a dict with the decision + which scores passed."""
+    green_scores = sorted(s for s, v in verdicts_by_score.items() if v.green)
+    n_green = len(green_scores)
+    green = n_green >= MIN_GREEN_SCORES
+    if green:
+        rationale = (f"GREEN: group-free substitution holds for {n_green}/{len(verdicts_by_score)} "
+                     f"score functions ({', '.join(green_scores)} >= {MIN_GREEN_SCORES} required), "
+                     f"each including the largest shift. Robust across score functions.")
+    else:
+        rationale = (f"FALLBACK: GREEN for only {n_green}/{len(verdicts_by_score)} score functions "
+                     f"({', '.join(green_scores) or 'none'}; >= {MIN_GREEN_SCORES} required). "
+                     f"\"{UnifiedVerdict.fallback_claim}\".")
+    return {"green": green, "label": "GREEN" if green else "FALLBACK (kill-switch)",
+            "n_green_scores": n_green, "green_scores": green_scores,
+            "min_required": MIN_GREEN_SCORES, "rationale": rationale}

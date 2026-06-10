@@ -132,6 +132,42 @@ def test_cbm_attribute_probe(monkeypatch):
     assert pop["feat_top1"] > 0.4               # clean-CUB-trained feature head still competent
 
 
+def test_label_alignment_guard():
+    """§1.1: the label/path desync guard fires on a mismatch, passes on matched basenames."""
+    rd.assert_label_alignment(["a/1.jpg", "b/2.jpg"], ["x/1.jpg", "y/2.jpg"], tag="ok")  # basenames match
+    with pytest.raises(ValueError):
+        rd.assert_label_alignment(["a/1.jpg", "b/2.jpg"], ["a/1.jpg", "b/9.jpg"], tag="bad")
+
+
+def test_known_good_baseline_gate():
+    """§1.2: the baseline passes on separable features, fails (passes=False) on unlearnable noise."""
+    rng = np.random.default_rng(0)
+    C, d = 10, 32
+    cent = rng.normal(0, 3, (C, d))
+    ytr, yte = rng.integers(0, C, 800), rng.integers(0, C, 400)
+    Xtr = _l2(cent[ytr] + rng.normal(0, 1, (800, d)))
+    Xte = _l2(cent[yte] + rng.normal(0, 1, (400, d)))
+    assert rd.clip_linear_probe_baseline(Xtr, ytr, Xte, yte)["passes"]
+    # pure noise -> below the 0.55 floor
+    Nt, Ne = _l2(rng.normal(0, 1, (800, d))), _l2(rng.normal(0, 1, (400, d)))
+    assert not rd.clip_linear_probe_baseline(Nt, ytr, Ne, yte)["passes"]
+
+
+def test_gate_halts_when_features_uninformative(monkeypatch):
+    """§1.4: assemble_e1_population HALTS (FeatureHeadGateError) when clean features can't ID species
+    (the v2 failure mode), emitting no population for a verdict to be computed on."""
+    b = _planted_bundle(n_classes=10)
+    # overwrite features with pure noise -> the head cannot clear the gate
+    rng = np.random.default_rng(1)
+    for sp in b.features:
+        b.features[sp] = _l2(rng.normal(0, 1, b.features[sp].shape).astype(np.float32))
+    _inject_corrected_seams(monkeypatch, b)
+    cfg = {"dataset": {"n_classes": 10}, "heads": {}, "cub": {"root": "x"}, "clip": {},
+           "concept_source": "cbm"}
+    with pytest.raises(rd.FeatureHeadGateError):
+        cf.load_real_population(cfg, seed=0)
+
+
 def test_load_real_population_feeds_orchestrator(monkeypatch):
     """End-to-end: an injected bundle flows through the CORRECTED unified-2x2 per-seed runner with
     the COMPLETE 2x2 (4 cells)."""

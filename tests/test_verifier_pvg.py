@@ -13,6 +13,16 @@ torch = pytest.importorskip("torch")
 from models.verifier_adapter import ReimplNCV, build_verifier
 
 
+@pytest.fixture(autouse=True)
+def _seed_global_rng():
+    """Test-determinism only (no production change): the verifier's init/shuffle touch torch's GLOBAL
+    RNG, which pytest-randomly's per-test reseeding + run order otherwise leaves nondeterministic ->
+    this test occasionally saw both provers saturate. Pin the global RNG so the assertions are
+    order-independent. Does NOT change the verifier or the test's intent."""
+    np.random.seed(0)
+    torch.manual_seed(0)
+
+
 def _planted_concept_space(n, seed):
     """Binary task. Concepts: 4 reliable core concepts aligned with y; 1 SPURIOUS concept that
     agrees with y on the majority but FLIPS on a 25% minority (so a sparse subset containing it
