@@ -457,8 +457,13 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
           f"all={indomain_all:.3f} typical={indomain_typical:.3f} atypical={indomain_atypical:.3f}")
 
     # ===== §2 DECISION TABLE + §4 in-domain GATE =====
+    # bypass_gate=True (v4b --diagnostic-no-verdict): a ONE-OFF measurement at the sub-threshold head.
+    # The gate is NOT removed -- it stays in force for any run that emits a verdict; this branch only
+    # lets a NO-VERDICT diagnostic proceed to measure the 2x2 at the current accuracy.
+    bypass = bool(cfg.get("bypass_gate", False))
     gate_top1 = indomain_typical
-    if gate_top1 < GATE_MIN_TOP1:
+    gate_passed = bool(gate_top1 >= GATE_MIN_TOP1)
+    if not gate_passed and not bypass:
         branch = f"in-domain typical {gate_top1:.3f} in (0.30,{GATE_MIN_TOP1}) -> below gate; investigate."
         if gate_top1 <= 0.30:                        # §1.3 zero-shot splits H2 (branch B) vs H1 (C)
             try:
@@ -480,10 +485,14 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
                        f"anchor={clean_to_clean:.3f}, clean->composited={clean_to_composited:.3f}, in-domain "
                        f"all/typ/atyp={indomain_all:.3f}/{indomain_typical:.3f}/{indomain_atypical:.3f}. {branch}"))
 
-    # Branch A: in-domain head is competent AND learns the shortcut -> it IS the experiment head
-    print(f"[§2 decision] Branch A: in-domain typical {gate_top1:.3f} >= {GATE_MIN_TOP1} -> the "
-          f"composited-trained head is the experiment head (clean-CUB anchor {clean_to_clean:.3f} is "
-          f"a secondary sanity print).")
+    if gate_passed:
+        print(f"[§2 decision] Branch A: in-domain typical {gate_top1:.3f} >= {GATE_MIN_TOP1} -> the "
+              f"composited-trained head is the experiment head (clean-CUB anchor {clean_to_clean:.3f} "
+              f"is a secondary sanity print).")
+    else:
+        print(f"[v4b DIAGNOSTIC] in-domain typical {gate_top1:.3f} < {GATE_MIN_TOP1}: §4 gate BYPASSED "
+              f"for this ONE-OFF no-verdict measurement. NO verdict will be emitted; the >= {GATE_MIN_TOP1} "
+              f"gate stays in force for any verdict run.")
     base = {"top1": clean_to_clean, "passes": bool(clean_to_clean >= BASELINE_MIN_TOP1),
             "n_train": int(len(bundle.species["train"])), "n_eval": int(len(y_dtest)),
             "n_classes": int(len(np.unique(bundle.species["train"])))}
@@ -527,7 +536,7 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
                  "diag": diag, "feat_top1_indomain_typical": indomain_typical,
                  "feat_top1_cleancub": clean_to_clean, "baseline_top1": base["top1"],
                  "gate_metric": "in_domain_typical_top1", "gate_min_top1": GATE_MIN_TOP1,
-                 "gate_passed": True})
+                 "gate_passed": gate_passed, "gate_bypassed": bool(bypass and not gate_passed)})
     if n_atyp < 200:
         print(f"[e1] WARNING: thin atypical pool (n_atypical={n_atyp}); worst-group estimates at "
               f"low ρ will be high-variance.")
@@ -538,7 +547,7 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
         "feat_top1": float((feat_probs.argmax(1) == species).mean()),
         "cpt_top1": float((cpt_probs.argmax(1) == species).mean()),
         "feat_top1_indomain_typical": indomain_typical, "feat_top1_cleancub": clean_to_clean,
-        "baseline_top1": base["top1"], "diag": diag, "gate_passed": True,
+        "baseline_top1": base["top1"], "diag": diag, "gate_passed": gate_passed,
         "concept_source": concept_source, "synthetic": False, "info": info,
     }
 

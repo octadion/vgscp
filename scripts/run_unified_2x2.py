@@ -173,7 +173,7 @@ def run_seed(pop, seed, rho_cal, rho_test_grid, n_cal, n_test, frac_cal, alpha, 
 # ======================================================================================
 # Orchestration (population built ONCE; seeds = random cal/test splits)
 # ======================================================================================
-def run(cfg, mode, n_seeds, concept_source, seeds=None):
+def run(cfg, mode, n_seeds, concept_source, seeds=None, diagnostic=False):
     rho_cal = float(cfg.get("shift", {}).get("rho_cal", DEFAULT_RHO_CAL))
     rho_test_grid = list(cfg.get("shift", {}).get("rho_test", DEFAULT_RHO_TEST))
     frac_cal = float(cfg.get("shift", {}).get("frac_cal", 0.5))
@@ -183,7 +183,7 @@ def run(cfg, mode, n_seeds, concept_source, seeds=None):
     if mode == "smoke":
         smk = cfg.get("smoke", {})
         sc_kw = {}
-        # optional feature-margin overrides so a DEGRADED-head smoke can exercise the §1.4 halt path
+        # optional feature-margin overrides so a DEGRADED-head smoke can exercise the gate/diagnostic
         for k in ("feat_margin_typical", "feat_margin_atypical", "feat_spurious_kappa"):
             if k in smk:
                 sc_kw[k] = float(smk[k])
@@ -196,14 +196,21 @@ def run(cfg, mode, n_seeds, concept_source, seeds=None):
     else:
         cfg = dict(cfg)
         cfg["concept_source"] = concept_source        # plumb the predicted-concept choice to real
+        if diagnostic:
+            cfg["bypass_gate"] = True                 # v4b: one-off no-verdict measurement at the head
         pop = cf.load_real_population(cfg, seed=int(cfg.get("pop_seed", 0)))
         n_cal = int(cfg.get("shift", {}).get("n_cal", 3000))
         n_test = int(cfg.get("shift", {}).get("n_test", 3000))
 
-    # §1.4 HARD GATE (v3): the head must clear the floor BEFORE any 2x2/verdict. Real mode already
-    # raised inside assemble_e1_population; this re-checks uniformly (and catches the smoke path, so a
-    # degraded synthetic head halts here too rather than producing a meaningless verdict).
-    enforce_feature_gate(pop, mode)
+    # §4 HARD GATE: the head must clear the floor BEFORE any verdict run. v4b --diagnostic-no-verdict
+    # BYPASSES the gate for a one-off measurement (no verdict emitted; the gate stays in force for
+    # verdict runs). Otherwise enforce it (real mode also raised inside assemble; this re-checks smoke).
+    gate_top1 = pop.get("feat_top1_indomain_typical") or pop.get("feat_top1")
+    if diagnostic:
+        print(f"[u2x2 DIAGNOSTIC] §4 gate BYPASSED for this ONE-OFF no-verdict run; in-domain/proxy "
+              f"typical top-1={gate_top1:.3f} (gate ≥ {GATE_MIN_TOP1} stays in force for verdict runs).")
+    else:
+        enforce_feature_gate(pop, mode)
 
     matched_classes, acc_info = matched_class_subset(pop)
 
@@ -214,10 +221,16 @@ def run(cfg, mode, n_seeds, concept_source, seeds=None):
         all_records.extend(recs)
         diags[s] = diag
 
-    verdicts = {sc_: unified_verdict(all_records, rho_cal=rho_cal, alpha=alpha, score=sc_)
-                for sc_ in SCORE_FNS}
-    combined = combined_decision(verdicts)        # v3: headline = GREEN only if >=2/3 score fns GREEN
+    if diagnostic:
+        verdicts = combined = None                    # v4b: NO verdict, measurements only
+        diag_summary = diagnostic_summary(all_records, rho_cal, pop["n_classes"])
+    else:
+        verdicts = {sc_: unified_verdict(all_records, rho_cal=rho_cal, alpha=alpha, score=sc_)
+                    for sc_ in SCORE_FNS}
+        combined = combined_decision(verdicts)        # headline GREEN only if >=2/3 score fns GREEN
+        diag_summary = None
     return {"records": all_records, "verdicts": verdicts, "combined": combined, "diags": diags,
+            "diagnostic": diagnostic, "diagnostic_summary": diag_summary,
             "mode": mode, "seeds": seeds, "rho_cal": rho_cal, "rho_test_grid": rho_test_grid,
             "alpha": alpha, "n_cal": n_cal, "n_test": n_test, "n_classes": pop["n_classes"],
             "concept_source": pop.get("concept_source", concept_source),
@@ -272,6 +285,55 @@ def efficiency_summary(df, payload, score=PRIMARY_SCORE):
 # ======================================================================================
 # Aggregation / serialization
 # ======================================================================================
+# ======================================================================================
+# v4b DIAGNOSTIC summary (NO verdict) — is the worst-group gap resolvable at this accuracy?
+# ======================================================================================
+GAP_RESOLVED = 0.15           # feat+split worst-group gap that counts as "clearly non-trivial"
+GAP_WASHED = 0.05
+SETFRAC_RESOLVED = 25.0 / 200  # mean set size < ~25/200 of the label space => non-degenerate
+SETFRAC_WASHED = 40.0 / 200    # mean set size >= ~40/200 => sets too large, gap washed out
+
+
+def diagnostic_summary(records, rho_cal, n_classes, score="APS"):
+    """At the LARGEST shift (min shifted rho, e.g. 0.5): feature+split worst-group coverage, coverage
+    gap, and mean set size (mean ± std over seeds), and which branch holds. NO verdict, NO R."""
+    shifted = sorted({r["test_corr"] for r in records
+                      if r["score"] == score and r["test_corr"] < rho_cal - 1e-9})
+    rho = min(shifted) if shifted else float("nan")
+    rows = [r for r in records if r["score"] == score and r["representation"] == "feature"
+            and r["scheme"] == "split" and abs(r["test_corr"] - rho) < 1e-9]
+    def ms(key):
+        v = np.array([r[key] for r in rows], float)
+        return (float(v.mean()), float(v.std(ddof=1)) if v.size > 1 else 0.0) if v.size else (float("nan"), 0.0)
+    wc_m, wc_s = ms("worst_cov")
+    gap_m, gap_s = ms("cov_gap")
+    sz_m, sz_s = ms("mean_set_size")
+    set_frac = sz_m / n_classes if n_classes else float("nan")
+    if gap_m >= GAP_RESOLVED and set_frac < SETFRAC_RESOLVED:
+        branch = "RESOLVED"
+        rationale = (f"feat+split gap {gap_m:.3f} ≥ {GAP_RESOLVED} with non-degenerate sets "
+                     f"({sz_m:.1f}/{n_classes} = {set_frac:.3f} < {SETFRAC_RESOLVED:.3f}): the construction "
+                     f"works at this accuracy; the ≥0.55 gate was conservative. Recommend a proper "
+                     f"hardened-verdict run with a 'moderate-accuracy' caveat AND re-examining the gate "
+                     f"threshold WITH THE ADVISOR (transparently). [recommendation only — no action taken]")
+    elif set_frac >= SETFRAC_WASHED and gap_m < GAP_WASHED:
+        branch = "STILL WASHED OUT"
+        rationale = (f"sets ≳ {SETFRAC_WASHED:.3f}·{n_classes} ({sz_m:.1f}) with feat+split gap "
+                     f"{gap_m:.3f} < {GAP_WASHED}: this accuracy is insufficient, the 200-way ceiling is "
+                     f"binding. Recommend raising accuracy via coarser labels (~20–50 classes / CUB "
+                     f"families) [primary] or a stronger CLIP backbone (ViT-L/14) [keeps 200-way]; the "
+                     f"researcher chooses. [recommendation only — no action taken]")
+    else:
+        branch = "IN BETWEEN"
+        rationale = (f"feat+split gap {gap_m:.3f}, sets {sz_m:.1f}/{n_classes} ({set_frac:.3f}) fall "
+                     f"between the RESOLVED and WASHED-OUT thresholds. Reporting both options (coarser "
+                     f"labels OR stronger backbone); no call forced. [no action taken]")
+    return {"rho_test": rho, "score": score, "n_classes": n_classes,
+            "feat_split_worst_cov": (wc_m, wc_s), "feat_split_gap": (gap_m, gap_s),
+            "feat_split_set_size": (sz_m, sz_s), "set_frac": set_frac,
+            "branch": branch, "rationale": rationale}
+
+
 def _agg_table(df, score):
     sub = df[df["score"] == score]
     return sub.groupby(["representation", "scheme", "test_corr"]).agg(
@@ -286,7 +348,7 @@ def write_csv(path, records):
         ["score", "representation", "scheme", "test_corr", "seed"]).to_csv(path, index=False)
 
 
-def make_figures(df, fig_dir, payload, score=PRIMARY_SCORE):
+def make_figures(df, fig_dir, payload, score=PRIMARY_SCORE, prefix="u2x2"):
     """View (i) gap-vs-rho (4 cells) and view (ii) worst-cov-vs-set-size frontier scatter."""
     try:
         import matplotlib
@@ -319,7 +381,7 @@ def make_figures(df, fig_dir, payload, score=PRIMARY_SCORE):
     ax.legend(fontsize=8)
     fig.tight_layout()
     for ext in ("pdf", "png"):
-        p = os.path.join(fig_dir, f"u2x2_gap_vs_rho_{score}.{ext}")
+        p = os.path.join(fig_dir, f"{prefix}_gap_vs_rho_{score}.{ext}")
         fig.savefig(p, dpi=150)
         paths.append(p)
     plt.close(fig)
@@ -341,7 +403,7 @@ def make_figures(df, fig_dir, payload, score=PRIMARY_SCORE):
     ax.legend(fontsize=8, loc="best")
     fig.tight_layout()
     for ext in ("pdf", "png"):
-        p = os.path.join(fig_dir, f"u2x2_frontier_{score}.{ext}")
+        p = os.path.join(fig_dir, f"{prefix}_frontier_{score}.{ext}")
         fig.savefig(p, dpi=150)
         paths.append(p)
     plt.close(fig)
@@ -406,6 +468,80 @@ Return for human review either way.
 """
     with open("BLOCKERS_v4.md", "w", encoding="utf-8") as f:
         f.write(txt)
+
+
+def write_diagnostic_report(path, df, payload, fig_paths):
+    """v4b DIAGNOSTIC report — clearly labelled, NO verdict. The 2x2 tables, the feat+split largest-
+    shift numbers, and which branch (RESOLVED / STILL WASHED OUT / IN BETWEEN) holds."""
+    s = payload["diagnostic_summary"]
+    fit = payload.get("feat_top1_indomain_typical")
+    f1, c1 = payload["feat_top1"], payload["cpt_top1"]
+    wc, gap, sz = s["feat_split_worst_cov"], s["feat_split_gap"], s["feat_split_set_size"]
+    lines = [
+        "# Unified 2×2 — DIAGNOSTIC ONLY (study paper v4b) — **NO VERDICT**",
+        "",
+        f"**Date:** {datetime.now(timezone.utc).date()} · **Run mode:** {payload['mode']} · "
+        f"**Seeds:** {len(payload['seeds'])} · **α={payload['alpha']:g}** · "
+        f"**ρ_cal={payload['rho_cal']:g}** · **classes:** {payload['n_classes']} · "
+        f"**concept source:** `{payload['concept_source']}`",
+        "",
+        "> ⚠️ **DIAGNOSTIC, NOT A VERDICT.** The §4 accuracy gate was BYPASSED for this **one-off** "
+        "measurement (in-domain typical top-1 was below the 0.55 floor). **No GREEN/FALLBACK label, no "
+        "R metric, no pre-registered outcome is emitted.** The ≥0.55 gate stays in force for any "
+        "verdict run. This run only measures whether the worst-group gap is resolvable at this accuracy.",
+        "",
+    ] + (["> ⚠️ **SMOKE (synthetic) run** — fabricated population validating the diagnostic machinery "
+          "(gate-bypass → 2×2 → branch, no verdict) on CPU. **The branch below is a MACHINERY check, "
+          "NOT the scientific call** — the real numbers (the 0.426 in-domain head) come from the "
+          "Colab/GPU run.", ""] if payload["mode"] == "smoke" else []) + [
+        f"- in-domain typical top-1 (the head used): **{fit:.3f}**" if fit is not None else
+        f"- head proxy top-1: **{f1:.3f}**",
+        f"- pool feature top-1 **{f1:.3f}** · concept (`{payload['concept_source']}`) top-1 **{c1:.3f}**",
+        "",
+        "## Diagnostic question (largest shift, ρ_test = "
+        f"{s['rho_test']:.2f}): is the worst-group gap resolvable here?",
+        f"- **feature+split worst-group coverage** = {wc[0]:.3f} ± {wc[1]:.3f}",
+        f"- **feature+split coverage gap** = {gap[0]:.3f} ± {gap[1]:.3f}  "
+        f"(non-trivial if ≥ ~{GAP_RESOLVED})",
+        f"- **feature+split mean set size** = {sz[0]:.2f} ± {sz[1]:.2f}  "
+        f"(= {s['set_frac']:.3f}·{payload['n_classes']}; non-degenerate if < ~{SETFRAC_RESOLVED:.3f}·n)",
+        "",
+        f"## Decision branch: **{s['branch']}**  *(report only — no action taken; return for human review)*",
+        s["rationale"],
+        "",
+    ]
+    for score in SCORE_FNS:
+        g = _agg_table(df, score)
+        tag = " (primary)" if score == PRIMARY_SCORE else " (appendix)"
+        lines += [f"### {score}{tag} — worst-group cov / mean set size / coverage gap by ρ_test", "",
+                  "| representation | scheme | ρ | worst-grp cov | mean set size | marg cov | cov gap |",
+                  "|---|---|---|---|---|---|---|"]
+        for (rep, scheme) in CELLS:
+            sub = g[(g.representation == rep) & (g.scheme == scheme)].sort_values(
+                "test_corr", ascending=False)
+            for _, r in sub.iterrows():
+                lines.append(f"| {rep} | {scheme} | {r['test_corr']:.2f} | "
+                             f"{_pm(r['worst_cov_m'], r['worst_cov_s'])} | "
+                             f"{_pm(r['size_m'], r['size_s'])} | {r['marg_m']:.3f} | "
+                             f"{_pm(r['gap_m'], r['gap_s'])} |")
+        lines.append("")
+    if fig_paths:
+        lines += ["## Figures", ""] + [f"- {os.path.relpath(p)}" for p in fig_paths if p.endswith(".pdf")]
+        lines.append("")
+    lines += [
+        "## Reproduce (real numbers: Colab/GPU; the §4 gate stays in force for verdict runs)",
+        "```",
+        "python -m scripts.run_unified_2x2 --config configs/cub200_frontier.yaml --seeds 10 \\",
+        "       --concept-source cbm --diagnostic-no-verdict --out results/unified_diagnostic",
+        "```",
+        "This BYPASSES the gate for THIS one-off measurement only. Decision branches (report, do NOT "
+        "act — return for human review): **RESOLVED** → propose a hardened-verdict run + re-examine the "
+        "gate threshold with the advisor; **STILL WASHED OUT** → coarser labels (~20–50 families) or "
+        "ViT-L/14; **IN BETWEEN** → report both options.",
+        "",
+    ]
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 # ======================================================================================
@@ -552,6 +688,9 @@ def main():
     ap.add_argument("--seeds", type=int, default=10)
     ap.add_argument("--concept-source", default="cbm",
                     choices=list(cf.CONCEPT_SOURCES), help="image-derived concept source (§2b)")
+    ap.add_argument("--diagnostic-no-verdict", action="store_true",
+                    help="v4b: one-off measurement at the in-domain head — BYPASS the §4 gate and "
+                         "emit NO verdict (the gate stays in force for verdict runs)")
     ap.add_argument("--out", default="results/unified")
     args = ap.parse_args()
 
@@ -561,9 +700,12 @@ def main():
         cfg = load_config(args.config)
 
     mode = "smoke" if args.smoke else "real"
-    # §1.4/§0b HARD HALT: if the feature head fails the gate, write BLOCKERS_v3 and emit NO 2x2/verdict
+    diagnostic = args.diagnostic_no_verdict
+
+    # §4/§0b HARD HALT (verdict runs only): if the head fails the gate, write BLOCKERS_v4, no verdict.
     try:
-        payload = run(cfg, mode=mode, n_seeds=args.seeds, concept_source=args.concept_source)
+        payload = run(cfg, mode=mode, n_seeds=args.seeds, concept_source=args.concept_source,
+                      diagnostic=diagnostic)
     except FeatureHeadGateError as e:
         write_blockers_v4(e, args)
         print(f"[u2x2] §4 IN-DOMAIN GATE FAILED: {e}")
@@ -571,10 +713,26 @@ def main():
         sys.exit(2)
 
     df = pd.DataFrame(payload["records"])
-    eff = efficiency_summary(df, payload)
-
     os.makedirs(args.out, exist_ok=True)
     write_csv(os.path.join(args.out, "unified_2x2.csv"), payload["records"])
+
+    if diagnostic:
+        # v4b: measurements only — NO verdict, NO combined decision, NO efficiency-claim verdict.
+        fig_paths = make_figures(df, "results/figures", payload, prefix="u2x2_diag")
+        write_diagnostic_report("RESULTS_v4b_diagnostic.md", df, payload, fig_paths)
+        write_diagnostic_report(os.path.join(args.out, "DIAGNOSTIC_REPORT.md"), df, payload, fig_paths)
+        s = payload["diagnostic_summary"]
+        gt = payload.get("feat_top1_indomain_typical") or payload["feat_top1"]
+        print(f"[u2x2 DIAGNOSTIC] mode={mode} concept={args.concept_source} "
+              f"seeds={len(payload['seeds'])} -> {args.out} (NO VERDICT)")
+        print(f"[u2x2 DIAGNOSTIC] in-domain typical top-1={gt:.3f} (gate BYPASSED, one-off) | "
+              f"feat+split @ρ={s['rho_test']:.2f}: worst_cov={s['feat_split_worst_cov'][0]:.3f} "
+              f"gap={s['feat_split_gap'][0]:.3f} set_size={s['feat_split_set_size'][0]:.2f}"
+              f"/{payload['n_classes']}")
+        print(f"[u2x2 DIAGNOSTIC] BRANCH: {s['branch']} — {s['rationale']}")
+        return
+
+    eff = efficiency_summary(df, payload)
     fig_paths = make_figures(df, "results/figures", payload)
     write_json(os.path.join(args.out, "unified_results.json"), payload, eff)
     write_report(os.path.join(args.out, "UNIFIED_REPORT.md"), df, payload, eff, fig_paths)

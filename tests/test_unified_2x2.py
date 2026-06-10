@@ -127,6 +127,34 @@ def test_verdict_requires_hardest_shift():
     assert v.majority and not v.hardest_recovers and not v.green   # majority alone is NOT enough
 
 
+def test_diagnostic_no_verdict_bypasses_gate():
+    """v4b: --diagnostic-no-verdict on a sub-threshold head does NOT halt, emits NO verdict, and
+    returns a diagnostic summary with a branch (RESOLVED/STILL WASHED OUT/IN BETWEEN)."""
+    cfg = {"smoke": {"n": 6000, "n_classes": 30, "feat_margin_typical": 0.9,
+                     "feat_margin_atypical": 0.4, "feat_spurious_kappa": 1.8}}
+    payload = u.run(cfg, mode="smoke", n_seeds=6, concept_source="cbm", diagnostic=True)
+    assert payload["diagnostic"] is True
+    assert payload["verdicts"] is None and payload["combined"] is None      # NO verdict
+    s = payload["diagnostic_summary"]
+    assert s["branch"] in ("RESOLVED", "STILL WASHED OUT", "IN BETWEEN")
+    assert abs(s["rho_test"] - 0.5) < 1e-9                                   # largest shift
+    # feat+split numbers are present
+    assert np.isfinite(s["feat_split_gap"][0]) and np.isfinite(s["feat_split_set_size"][0])
+
+
+def test_diagnostic_branch_thresholds():
+    """The branch classifier maps (gap, set_size/n_classes) to the spec thresholds."""
+    from scripts.run_unified_2x2 import diagnostic_summary
+    n = 200
+    def mk(gap, setsz):
+        return [{"test_corr": 0.5, "score": "APS", "representation": "feature", "scheme": "split",
+                 "seed": i, "worst_cov": 0.9 - gap, "cov_gap": gap, "marg_cov": 0.9,
+                 "mean_set_size": setsz} for i in range(5)]
+    assert diagnostic_summary(mk(0.30, 15), 0.95, n)["branch"] == "RESOLVED"        # gap>=.15, <25/200
+    assert diagnostic_summary(mk(0.02, 60), 0.95, n)["branch"] == "STILL WASHED OUT"  # gap<.05, >=40/200
+    assert diagnostic_summary(mk(0.30, 60), 0.95, n)["branch"] == "IN BETWEEN"       # big gap AND big sets
+
+
 def test_combined_requires_two_of_three_scores():
     """v3 headline GREEN requires per-score GREEN for >= 2 of 3 score functions."""
     good = {rho: {("feature", "split"): 0.70, ("feature", "Mondrian"): 0.05,
