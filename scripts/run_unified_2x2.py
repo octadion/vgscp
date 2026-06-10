@@ -222,22 +222,26 @@ def run(cfg, mode, n_seeds, concept_source, seeds=None):
             "alpha": alpha, "n_cal": n_cal, "n_test": n_test, "n_classes": pop["n_classes"],
             "concept_source": pop.get("concept_source", concept_source),
             "feat_top1": pop.get("feat_top1"), "cpt_top1": pop.get("cpt_top1"),
+            "feat_top1_indomain_typical": pop.get("feat_top1_indomain_typical"),
             "feat_top1_cleancub": pop.get("feat_top1_cleancub"),
-            "baseline_top1": pop.get("baseline_top1"),
+            "baseline_top1": pop.get("baseline_top1"), "diag": pop.get("diag"),
             "acc_control": acc_info, "pop_info": pop.get("info")}
 
 
 def enforce_feature_gate(pop, mode):
-    """§1.4/§0b HARD HALT. Gate on clean-CUB top-1 (real) or the synthetic head top-1 (smoke). Raise
-    FeatureHeadGateError (-> orchestrator writes BLOCKERS_v3 and emits NO verdict) if below floor."""
-    gate_top1 = pop.get("feat_top1_cleancub")
+    """§4 (v4)/§0b HARD HALT. Gate on the IN-DOMAIN species top-1 on TYPICAL composited d_test (real)
+    or the synthetic head top-1 (smoke) -- the IN-EXPERIMENT distribution, not the clean-CUB anchor
+    (the v3 mistake). Raise FeatureHeadGateError if below floor -> orchestrator writes BLOCKERS + no
+    verdict. (Real mode already raised inside assemble_e1_population; this is the belt-and-suspenders.)"""
+    gate_top1 = pop.get("feat_top1_indomain_typical")
     if gate_top1 is None:
-        gate_top1 = pop.get("feat_top1")          # smoke proxy
+        gate_top1 = pop.get("feat_top1")          # smoke proxy (in-domain by construction)
     if gate_top1 is not None and gate_top1 < GATE_MIN_TOP1:
         raise FeatureHeadGateError(
-            gate_top1, where=f"{mode} orchestrator gate",
-            diagnosis=("Feature head top-1 below the 0.55 floor; a verdict here would be computed on "
-                       "a broken head (the v2 error). Halting per §0b: NO 2x2 and NO verdict."))
+            gate_top1, where=f"{mode} orchestrator in-domain gate",
+            diagnosis=("In-domain typical species top-1 below the 0.55 floor; a verdict here would be "
+                       "computed on a weak head (the v3 error ran at 0.246). Halting per §0b: NO 2x2 "
+                       "and NO verdict."))
 
 
 # ======================================================================================
@@ -363,7 +367,8 @@ def _verdict_json(v):
 def write_json(path, payload, eff):
     out = {k: payload[k] for k in ("mode", "seeds", "rho_cal", "rho_test_grid", "alpha", "n_cal",
                                    "n_test", "n_classes", "concept_source", "feat_top1", "cpt_top1",
-                                   "feat_top1_cleancub", "baseline_top1", "acc_control")}
+                                   "feat_top1_indomain_typical", "feat_top1_cleancub", "baseline_top1",
+                                   "diag", "acc_control")}
     out["combined"] = payload["combined"]
     out["verdicts"] = {s: _verdict_json(v) for s, v in payload["verdicts"].items()}
     out["efficiency"] = eff
@@ -372,37 +377,34 @@ def write_json(path, payload, eff):
         json.dump(out, f, indent=2, default=float)
 
 
-def write_blockers_v3(err: FeatureHeadGateError, args):
-    """§0b mandatory: on a gate failure, write BLOCKERS_v3.md and produce NO 2x2 / NO verdict."""
-    txt = f"""# BLOCKERS v3 — §1.4 ACCURACY GATE FAILED → run HALTED (no 2×2, no verdict)
+def write_blockers_v4(err: FeatureHeadGateError, args):
+    """§0b/§4 mandatory: on a gate failure (or branch B/C), write BLOCKERS_v4.md and produce NO 2x2 /
+    NO verdict / skip E2."""
+    txt = f"""# BLOCKERS v4 — §4 IN-DOMAIN GATE FAILED → run HALTED (no 2×2, no verdict, E2 skipped)
 
 **Date:** {datetime.now(timezone.utc).date()} · **Run:** `run_unified_2x2` mode=\
 {'smoke' if args.smoke else 'real'} concept_source={args.concept_source}
 
 ## Why this run produced no result
-The feature head did not clear the pre-committed **§1.4 hard accuracy gate** (clean-CUB top-1 ≥ \
-{GATE_MIN_TOP1}). Per spec v3 §0b the run **halts here and emits NO 2×2 and NO verdict** — a verdict
-on a sub-threshold head is a reporting error, not a result (this is exactly the v2 mistake, where a
-verdict was computed at top-1 = 0.162).
+The IN-DOMAIN feature head did not clear the pre-committed **§4 gate** (in-domain species top-1 on the
+TYPICAL composited test ≥ {GATE_MIN_TOP1}). Per spec v4 §4/§0b the run **halts here and emits NO 2×2,
+NO verdict, and SKIPS E2** — a verdict on a weak head is a reporting error, not a result (v3 wrongly
+ran at an in-domain 0.246 head measured by the wrong, clean-CUB, gate).
 
 - **Gate location:** {err.where}
-- **Observed clean-CUB top-1:** **{err.top1:.3f}**  (required ≥ {GATE_MIN_TOP1})
+- **Observed in-domain typical top-1:** **{err.top1:.3f}**  (required ≥ {GATE_MIN_TOP1})
 
-## Diagnosis
+## Diagnosis (incl. §2 decision-table branch)
 {err.diagnosis}
 
-## Diagnostic checklist (run spec §1.1, in order)
-1. Features L2-normalized before the head, with the SAME normalization at train and test.
-2. Species-id parsing consistent (0- vs 1-based CUB ids) across the train/cal/test feature caches.
-3. CLIP preprocessing parity (resize/crop/interpolation) between the train and test feature caches.
-4. Head trained on the full `train` split (n≈4795), not `d_learn` (n≈1748); solver converged.
-5. Identical class set across train/cal/test.
-
-## What to do
-Fix the cause above, re-run; the gate re-checks automatically. Do NOT lower the gate to pass.
-Return for human review.
+## What to do (per the §2 decision table)
+- **Branch B (H2, encoding bug):** fix the composited CLIP feature extraction to use the canonical
+  open_clip transform; re-verify §1; re-run. Do NOT lower the gate.
+- **Branch C (H1, construction destroys species signal):** STOP; recommend dropping to coarser label
+  granularity (~20–50 classes / CUB families) and return for human review.
+Return for human review either way.
 """
-    with open("BLOCKERS_v3.md", "w", encoding="utf-8") as f:
+    with open("BLOCKERS_v4.md", "w", encoding="utf-8") as f:
         f.write(txt)
 
 
@@ -418,28 +420,36 @@ def write_report(path, df, payload, eff, fig_paths):
     comb = payload["combined"]
     mode, src = payload["mode"], payload["concept_source"]
     f1, c1 = payload["feat_top1"], payload["cpt_top1"]
-    fcc, base = payload.get("feat_top1_cleancub"), payload.get("baseline_top1")
+    fit, fcc = payload.get("feat_top1_indomain_typical"), payload.get("feat_top1_cleancub")
+    diag = payload.get("diag")
     lines = [
-        "# Unified 2×2 — HARDENED coverage / gap run (study paper v3)",
+        "# Unified 2×2 — IN-DOMAIN head run (study paper v4)",
         "",
         f"**Date:** {datetime.now(timezone.utc).date()} · **Run mode:** {mode} · "
         f"**Seeds:** {len(payload['seeds'])} · **α={payload['alpha']:g}** · "
         f"**ρ_cal={payload['rho_cal']:g}** · **ρ_test:** {payload['rho_test_grid']} · "
-        f"**classes:** {payload['n_classes']} · **concept source:** `{src}` (image-derived)",
+        f"**classes:** {payload['n_classes']} · **concept source:** `{src}` (image-derived, in-domain)",
         "",
     ]
     if mode == "smoke":
         lines += ["> ⚠️ **SMOKE (synthetic) run** — fabricated CUB-200-like population validating the "
-                  "hardened gate→4-cell→verdict pipeline on CPU. Real numbers come from the Colab/GPU "
+                  "in-domain-gate→4-cell→verdict pipeline on CPU. Real numbers come from the Colab/GPU "
                   "cached-feature run. **Not a scientific result.**", ""]
+    if diag:
+        lines += ["## §1 diagnostic (reported before any patch)",
+                  f"- clean→clean (anchor): **{diag['clean_to_clean']:.3f}**",
+                  f"- clean→composited (the v3 mismatch reproduced): **{diag['clean_to_composited']:.3f}**",
+                  f"- **in-domain** composited→composited d_test — all **{diag['indomain_all']:.3f}** / "
+                  f"typical **{diag['indomain_typical']:.3f}** / atypical **{diag['indomain_atypical']:.3f}**",
+                  ""]
     lines += [
-        "## §1.4 accuracy gate (HARD HALT — checked before any 2×2/verdict)",
-        f"- §1.2 known-good CLIP linear-probe baseline (clean CUB-200): "
-        f"**{base:.3f}**" if base is not None else "- §1.2 baseline: (real run)",
-        f"- §2a study feature head, clean-CUB top-1: **{fcc:.3f}** "
-        f"(gate ≥ {GATE_MIN_TOP1}; **PASSED** — else this run would have HALTED with no verdict)"
-        if fcc is not None else
-        f"- feature head clean-CUB top-1: (real run; smoke proxy feat_top1={f1:.3f} ≥ {GATE_MIN_TOP1})",
+        "## §4 IN-DOMAIN accuracy gate (HARD HALT — checked before any 2×2/verdict)",
+        f"- gate metric = **in-domain typical** species top-1 (composited d_test, is_minority==0): "
+        f"**{fit:.3f}** (gate ≥ {GATE_MIN_TOP1}; **PASSED** — else HALTED with no verdict)"
+        if fit is not None else
+        f"- gate metric (real run); smoke proxy feat_top1={f1:.3f} ≥ {GATE_MIN_TOP1}",
+        f"- secondary anchor: clean-CUB clean→clean top-1 = **{fcc:.3f}**" if fcc is not None else
+        "- secondary clean-CUB anchor: (real run)",
         "",
         "## Pre-committed HARDENED claim (eval/unified_verdict.py — fixed before any numbers)",
         "Group-free substitution: an invariant (predicted) concept score under **pooled split** "
@@ -555,9 +565,9 @@ def main():
     try:
         payload = run(cfg, mode=mode, n_seeds=args.seeds, concept_source=args.concept_source)
     except FeatureHeadGateError as e:
-        write_blockers_v3(e, args)
-        print(f"[u2x2] §1.4 GATE FAILED: {e}")
-        print("[u2x2] HALTED per §0b — wrote BLOCKERS_v3.md; NO 2×2 and NO verdict produced.")
+        write_blockers_v4(e, args)
+        print(f"[u2x2] §4 IN-DOMAIN GATE FAILED: {e}")
+        print("[u2x2] HALTED per §0b — wrote BLOCKERS_v4.md; NO 2×2, NO verdict, E2 skipped.")
         sys.exit(2)
 
     df = pd.DataFrame(payload["records"])
@@ -571,14 +581,14 @@ def main():
 
     comb = payload["combined"]
     print(f"[u2x2] mode={mode} concept={args.concept_source} seeds={len(payload['seeds'])} -> {args.out}")
-    print(f"[u2x2] gate: clean-CUB feat top-1={payload.get('feat_top1_cleancub') or payload['feat_top1']:.3f} "
-          f">= {GATE_MIN_TOP1} (PASSED) | heads: feature={payload['feat_top1']:.3f} "
-          f"concept={payload['cpt_top1']:.3f}")
+    print(f"[u2x2] §4 gate: in-domain typical top-1="
+          f"{payload.get('feat_top1_indomain_typical') or payload['feat_top1']:.3f} >= {GATE_MIN_TOP1} "
+          f"(PASSED) | heads: feature(pool)={payload['feat_top1']:.3f} concept={payload['cpt_top1']:.3f}")
     for s in SCORE_FNS:
         vs = payload["verdicts"][s]
         print(f"[u2x2]   {s}: {'GREEN' if vs.green else 'FALLBACK'} "
               f"(majority={vs.majority}, ρ=0.5 recovers={vs.hardest_recovers}, R={vs.sweep_mean_R:.2f})")
-    print(f"[u2x2] HEADLINE (v3 ≥{comb['min_required']}/3): {comb['label']} — {comb['rationale']}")
+    print(f"[u2x2] HEADLINE (≥{comb['min_required']}/3 scores): {comb['label']} — {comb['rationale']}")
     if mode == "smoke":
         print("[u2x2] SMOKE OK — hardened pipeline validated on synthetic. Real numbers: Colab/GPU.")
 

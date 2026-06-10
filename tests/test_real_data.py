@@ -154,10 +154,10 @@ def test_known_good_baseline_gate():
 
 
 def test_gate_halts_when_features_uninformative(monkeypatch):
-    """§1.4: assemble_e1_population HALTS (FeatureHeadGateError) when clean features can't ID species
-    (the v2 failure mode), emitting no population for a verdict to be computed on."""
+    """§4: assemble_e1_population HALTS (FeatureHeadGateError) when the IN-DOMAIN composited features
+    can't ID species, emitting no population for a verdict to be computed on."""
     b = _planted_bundle(n_classes=10)
-    # overwrite features with pure noise -> the head cannot clear the gate
+    # overwrite features with pure noise -> the in-domain head cannot clear the gate
     rng = np.random.default_rng(1)
     for sp in b.features:
         b.features[sp] = _l2(rng.normal(0, 1, b.features[sp].shape).astype(np.float32))
@@ -166,6 +166,22 @@ def test_gate_halts_when_features_uninformative(monkeypatch):
            "concept_source": "cbm"}
     with pytest.raises(rd.FeatureHeadGateError):
         cf.load_real_population(cfg, seed=0)
+
+
+def test_v4_in_domain_diagnostic_and_head(monkeypatch):
+    """§1/§3/§4: the population reports the three diagnostic accuracies, the gate is the IN-DOMAIN
+    typical top-1, and the feature head is trained IN-DOMAIN (composited train), not on clean CUB."""
+    b = _planted_bundle(n_classes=10, per_split=500)
+    _inject_corrected_seams(monkeypatch, b)
+    cfg = {"dataset": {"n_classes": 10}, "heads": {}, "cub": {"root": "x"}, "clip": {},
+           "concept_source": "cbm"}
+    pop = cf.load_real_population(cfg, seed=0)
+    for k in ("clean_to_clean", "clean_to_composited", "indomain_all", "indomain_typical",
+              "indomain_atypical"):
+        assert k in pop["diag"]
+    # gate field present and is the in-domain typical accuracy (separable planted data -> competent)
+    assert pop["feat_top1_indomain_typical"] >= 0.55
+    assert pop["info"]["gate_metric"] == "in_domain_typical_top1"
 
 
 def test_load_real_population_feeds_orchestrator(monkeypatch):

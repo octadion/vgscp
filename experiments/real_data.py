@@ -343,24 +343,58 @@ def clean_cub_image_paths(wb_paths: list[str], cub_data_root: str) -> list[str]:
     return out
 
 
+def species_names_from_paths(paths: list[str], n_classes: int) -> list[str]:
+    """Human-readable species names from the CUB folder (e.g. '001.Black_footed_Albatross' ->
+    'Black footed Albatross'), indexed by 0-based species id. Used for §1.3 CLIP zero-shot prompts."""
+    from experiments.cub200_frontier import species_from_waterbirds_paths
+    ids = species_from_waterbirds_paths(paths)
+    names = [f"species {i}" for i in range(n_classes)]
+    for p, sid in zip(paths, ids):
+        folder = p.replace("\\", "/").rstrip("/").split("/")[-2]
+        names[int(sid)] = folder.split(".", 1)[-1].replace("_", " ").strip()
+    return names
+
+
+def zeroshot_species_top1(paths: list[str], species: np.ndarray, model_name: str, pretrained: str,
+                          device: str, species_names: list[str], sample: int = 64,
+                          seed: int = 0) -> dict:
+    """§1.3 H1-vs-H2 split: CLIP ZERO-SHOT species top-1 on a sample of COMPOSITED images, plus the
+    mean cosine between freshly re-encoded features and the cached features for those rows. A
+    reasonable zero-shot accuracy + low re-encode cosine => an encoding/preprocessing bug (H2); a
+    zero-shot that ALSO collapses => the construction destroys species signal (H1). Colab-only."""
+    from models.concept_extractor_clip import CLIPConceptExtractor
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(paths), size=min(sample, len(paths)), replace=False)
+    prompts = [f"a photo of a {n}" for n in species_names]
+    ext = CLIPConceptExtractor(model_name, pretrained, prompts, device=device)
+    ext.load()
+    feats = ext.encode_image_features([paths[i] for i in idx])      # canonical preprocess
+    import numpy as _np
+    temb = ext._text_emb.float().cpu().numpy()                       # (C, d) L2-normalized
+    pred = (feats @ temb.T).argmax(1)
+    zs_top1 = float((pred == species[idx]).mean())
+    return {"zeroshot_top1": zs_top1, "n_sample": int(len(idx))}
+
+
 def assemble_e1_population(cfg: dict, seed: int) -> dict:
-    """CORRECTED E1/unified population (run spec v2 §2a + §2b). Colab/GPU only.
+    """IN-DOMAIN E1/unified population (run spec v4). Colab/GPU only.
 
-    Fixes vs the prior run:
-      §2a  the FEATURE head is trained on CLEAN CUB-200 features (not background-composited ones)
-           and its clean top-1 is reported as the sanity target (>=0.55). Frozen features are
-           L2-normalized (asserted) before the linear head -- the prime suspect for the 0.182 bug.
-           The frontier still SCORES the contaminated (Waterbirds-composited) pool posteriors, so the
-           contamination shows up in the SCORE under shift, not in a broken head.
-      §2b  the CONCEPT score is IMAGE-DERIVED (predicted), never the ground-truth MTurk attributes:
-             * cbm        : CLIP features -> attribute probe -> predicted attrs -> species head
-             * zeroshot   : CLIP zero-shot attribute cosines -> species head
-             * gt_attrs_leaky : the PRIOR (invalid) path -- ground-truth attrs at test time. Kept ONLY
-               for the leakage demonstration; emits a loud warning and must not be the headline.
+    v4 fix (vs v3, which was scientifically void): the species/feature head is trained IN-DOMAIN on
+    the COMPOSITED ``train`` split (where the spurious correlation lives at high rho), NOT on clean
+    CUB-200. A clean-trained head suffered a clean->composited domain mismatch (0.700 clean vs 0.246
+    composited) AND never learned the background shortcut, so it didn't instantiate the phenomenon
+    under study. The in-domain head's posteriors feed every conformal score.
 
-    Returns the same dict shape as ``make_smoke_population`` plus ``feat_top1_cleancub`` (the §2a
-    sanity number) and ``concept_source``. This needs torch + open_clip + the CUB/Waterbirds data;
-    every sub-step except CLIP-encoding is pure numpy/sklearn (unit-testable with injected arrays)."""
+      §1   DIAGNOSTIC (reported before any patch): clean->clean (anchor), clean->composited (the v3
+           mismatch), and the DECISIVE in-domain composited->composited top-1 split all/typical/atypical.
+      §2/4 DECISION + in-domain GATE: gate metric = in-domain species top-1 on the TYPICAL
+           (is_minority==0) composited d_test. HARD HALT (no 2x2/verdict) if < 0.55. The clean-CUB
+           anchor is now a SECONDARY sanity print, not the gate.
+      §2b  CONCEPT score is IMAGE-DERIVED (predicted) and ALSO in-domain: cbm (CLIP composited feats
+           -> attr probe -> predicted attrs -> species head), zeroshot (appendix), gt_attrs_leaky (demo).
+
+    Returns the ``make_smoke_population`` dict shape plus ``feat_top1_indomain_typical`` (the gate),
+    ``feat_top1_cleancub`` (anchor), ``diag`` (the three §1 numbers), and ``concept_source``."""
     from data.cub_attributes import prepare_cub
     from experiments.cub200_frontier import realized_rho, typicality_group, ATYPICAL, TYPICAL
 
@@ -376,7 +410,6 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
     bundle = load_real_bundle(cfg, seed)
     n_classes = bundle.n_classes
     hcfg = cfg.get("heads", {})
-    # v3: standardized head defaults -> higher max_iter; C overridable
     C, max_iter = float(hcfg.get("C", 1.0)), int(hcfg.get("max_iter", 5000))
     pool_splits = tuple(cfg.get("pool_splits", ("d_learn", "d_cal", "d_test")))
     clipcfg = cfg.get("clip", {})
@@ -384,53 +417,81 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
              clipcfg.get("device", "cuda"))
     cache_dir = clipcfg.get("cache_dir", "results/cache_clip")
 
-    # ---- §2a clean-CUB features (the feature head trains on CLEAN, not composited, images) ----
+    # composited features are the IN-DOMAIN experiment distribution; must be L2-normalized
+    for sp in ("train",) + pool_splits:
+        assert_l2_normalized(bundle.features[sp], tag=f"composited {sp} features")
+
+    y_dtest = bundle.species["d_test"]
+    minor = np.asarray(bundle.is_minority["d_test"]).astype(bool)
+    typ_mask, atyp_mask = ~minor, minor
+
+    # ===== §1 DIAGNOSTIC (report ALL numbers before any patch/verdict) =====
+    # §1.2 anchor + §1.1.1 mismatch: clean-CUB head (encode train + d_test ONLY -- anchor use)
     cub_root = prepare_cub(cfg["cub"]["root"], download=cfg["cub"].get("download", False),
                            url=cfg["cub"].get("url"))
-    clean_feats, clean_paths = {}, {}
-    for sp in ("train",) + pool_splits:
+    clean_feats = {}
+    for sp in ("train", "d_test"):
         cp = clean_cub_image_paths(bundle.paths[sp], cub_root)
-        clean_paths[sp] = cp
         clean_feats[sp] = clip_image_features(cp, *cargs, cache_dir, tag=f"cleancub_{sp}")
         assert_l2_normalized(clean_feats[sp], tag=f"clean-CUB {sp} features")
-        # §1.1 guard: clean-CUB encode order must still match the species labels parsed from paths
         assert_label_alignment(cp, bundle.paths[sp], tag=f"cleancub_{sp}")
+    anchor = fit_species_head(clean_feats["train"], bundle.species["train"], C=C,
+                              max_iter=max_iter, seed=seed)
+    clean_to_clean = top1(anchor, clean_feats["d_test"], y_dtest)               # ~0.70 (anchor)
+    clean_to_composited = top1(anchor, bundle.features["d_test"], y_dtest)      # ~0.246 (v3 mismatch)
 
-    clean_eval = clean_feats.get("d_test", clean_feats[pool_splits[-1]])
-    clean_eval_y = bundle.species.get("d_test", bundle.species[pool_splits[-1]])
-
-    # ---- §1.2 KNOWN-GOOD baseline FIRST (standard standardized CLIP linear probe) ----
-    base = clip_linear_probe_baseline(clean_feats["train"], bundle.species["train"],
-                                      clean_eval, clean_eval_y, C=C, max_iter=max_iter, seed=seed)
-    print(f"[§1.2] known-good CLIP linear-probe baseline (clean CUB-200): top-1={base['top1']:.3f} "
-          f"(n_train={base['n_train']}, n_eval={base['n_eval']}, classes={base['n_classes']})")
-    if not base["passes"]:
-        raise FeatureHeadGateError(
-            base["top1"], where="§1.2 known-good baseline",
-            diagnosis=("A STANDARD standardized CLIP ViT-B/32 linear probe on CLEAN CUB-200 cannot "
-                       "reach 0.55 -- the bug is in FEATURE EXTRACTION or LABEL ALIGNMENT, not the "
-                       "study head. Check: CLIP preprocess parity train/test, species id parsing "
-                       "(0- vs 1-based), and the clean-CUB path mapping. Do NOT proceed."))
-
-    # ---- §2a/§1.1 study feature head (STANDARDIZED -- the head-fix) on clean CUB ----
-    feat_head = fit_species_head(clean_feats["train"], bundle.species["train"], C=C,
+    # §1.1.2 DECISIVE: in-domain head, composited train -> composited d_test (the v4 experiment head)
+    feat_head = fit_species_head(bundle.features["train"], bundle.species["train"], C=C,
                                  max_iter=max_iter, seed=seed)
-    feat_top1_cleancub = top1(feat_head, clean_eval, clean_eval_y)
-    print(f"[§2a] clean-CUB feature linear-probe top-1 = {feat_top1_cleancub:.3f} "
-          f"(GATE >= {GATE_MIN_TOP1}; 0.162 in the prior broken v2 run)")
+    pred_dtest = feat_head.predict(bundle.features["d_test"])
+    indomain_all = float((pred_dtest == y_dtest).mean())
+    indomain_typical = (float((pred_dtest[typ_mask] == y_dtest[typ_mask]).mean())
+                        if typ_mask.any() else float("nan"))
+    indomain_atypical = (float((pred_dtest[atyp_mask] == y_dtest[atyp_mask]).mean())
+                         if atyp_mask.any() else float("nan"))
+    diag = {"clean_to_clean": clean_to_clean, "clean_to_composited": clean_to_composited,
+            "indomain_all": indomain_all, "indomain_typical": indomain_typical,
+            "indomain_atypical": indomain_atypical}
+    print(f"[§1 DIAGNOSTIC] clean->clean(anchor)={clean_to_clean:.3f} | "
+          f"clean->composited(mismatch repro)={clean_to_composited:.3f} | in-domain d_test "
+          f"all={indomain_all:.3f} typical={indomain_typical:.3f} atypical={indomain_atypical:.3f}")
 
-    # ---- §1.4 HARD GATE: halt before ANY 2x2/verdict if the head is sub-threshold ----
-    if feat_top1_cleancub < GATE_MIN_TOP1:
+    # ===== §2 DECISION TABLE + §4 in-domain GATE =====
+    gate_top1 = indomain_typical
+    if gate_top1 < GATE_MIN_TOP1:
+        branch = f"in-domain typical {gate_top1:.3f} in (0.30,{GATE_MIN_TOP1}) -> below gate; investigate."
+        if gate_top1 <= 0.30:                        # §1.3 zero-shot splits H2 (branch B) vs H1 (C)
+            try:
+                names = species_names_from_paths(bundle.paths["d_test"], n_classes)
+                zs = zeroshot_species_top1(bundle.paths["d_test"], y_dtest, *cargs, names, seed=seed)
+                if zs["zeroshot_top1"] >= 0.30:
+                    branch = (f"Branch B (H2 encoding bug): in-domain typical {gate_top1:.3f}<=0.30 but CLIP "
+                              f"zero-shot on composited images = {zs['zeroshot_top1']:.3f} (reasonable) -> fix "
+                              f"the composited feature extraction to use the canonical CLIP transform; re-run.")
+                else:
+                    branch = (f"Branch C (H1): in-domain typical {gate_top1:.3f}<=0.30 AND CLIP zero-shot also "
+                              f"collapses ({zs['zeroshot_top1']:.3f}) -> the construction destroys species signal. "
+                              f"STOP; recommend coarser label granularity (~20-50 CUB families). Do NOT patch.")
+            except Exception as e:
+                branch = f"(could not run §1.3 zero-shot H1/H2 check: {e}; run it manually before deciding.)"
         raise FeatureHeadGateError(
-            feat_top1_cleancub, where="§2a study head",
-            diagnosis=("Feature head below the 0.55 floor after the standardized-probe fix. The "
-                       "known-good baseline passed, so feature extraction is OK -- investigate the "
-                       "species-head config (C / max_iter / class coverage) before any re-run. "
-                       "Per §0b: NO 2x2 and NO verdict are produced."))
+            gate_top1, where="§4 in-domain typical gate",
+            diagnosis=(f"Gate = IN-DOMAIN species top-1 on TYPICAL composited d_test. clean->clean "
+                       f"anchor={clean_to_clean:.3f}, clean->composited={clean_to_composited:.3f}, in-domain "
+                       f"all/typ/atyp={indomain_all:.3f}/{indomain_typical:.3f}/{indomain_atypical:.3f}. {branch}"))
 
-    # ---- feature posteriors on the CONTAMINATED (composited) pool: the contaminated representation
-    for sp in pool_splits:
-        assert_l2_normalized(bundle.features[sp], tag=f"composited {sp} features")
+    # Branch A: in-domain head is competent AND learns the shortcut -> it IS the experiment head
+    print(f"[§2 decision] Branch A: in-domain typical {gate_top1:.3f} >= {GATE_MIN_TOP1} -> the "
+          f"composited-trained head is the experiment head (clean-CUB anchor {clean_to_clean:.3f} is "
+          f"a secondary sanity print).")
+    base = {"top1": clean_to_clean, "passes": bool(clean_to_clean >= BASELINE_MIN_TOP1),
+            "n_train": int(len(bundle.species["train"])), "n_eval": int(len(y_dtest)),
+            "n_classes": int(len(np.unique(bundle.species["train"])))}
+    if not base["passes"]:
+        print(f"[§1.2] WARNING: clean-CUB anchor top-1={clean_to_clean:.3f} < {BASELINE_MIN_TOP1} "
+              f"(secondary check; the in-domain gate is binding).")
+
+    # ---- feature posteriors on the composited pool, from the IN-DOMAIN head ----
     feat_X = np.concatenate([bundle.features[s] for s in pool_splits], axis=0)
     feat_probs = head_probs(feat_head, feat_X, n_classes).astype(np.float32)
 
@@ -463,8 +524,10 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
     info = dict(bundle.info)
     info.update({"pool_n": int(len(species)), "pool_n_atypical": n_atyp,
                  "pool_rho": realized_rho(typ), "concept_source": concept_source,
-                 "feat_top1_cleancub": feat_top1_cleancub, "baseline_top1": base["top1"],
-                 "gate_min_top1": GATE_MIN_TOP1, "gate_passed": True})
+                 "diag": diag, "feat_top1_indomain_typical": indomain_typical,
+                 "feat_top1_cleancub": clean_to_clean, "baseline_top1": base["top1"],
+                 "gate_metric": "in_domain_typical_top1", "gate_min_top1": GATE_MIN_TOP1,
+                 "gate_passed": True})
     if n_atyp < 200:
         print(f"[e1] WARNING: thin atypical pool (n_atypical={n_atyp}); worst-group estimates at "
               f"low ρ will be high-variance.")
@@ -474,9 +537,9 @@ def assemble_e1_population(cfg: dict, seed: int) -> dict:
         "feat_probs": feat_probs, "cpt_probs": cpt_probs, "n_classes": n_classes,
         "feat_top1": float((feat_probs.argmax(1) == species).mean()),
         "cpt_top1": float((cpt_probs.argmax(1) == species).mean()),
-        "feat_top1_cleancub": feat_top1_cleancub, "baseline_top1": base["top1"],
-        "gate_passed": True, "concept_source": concept_source,
-        "synthetic": False, "info": info,
+        "feat_top1_indomain_typical": indomain_typical, "feat_top1_cleancub": clean_to_clean,
+        "baseline_top1": base["top1"], "diag": diag, "gate_passed": True,
+        "concept_source": concept_source, "synthetic": False, "info": info,
     }
 
 

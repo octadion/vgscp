@@ -93,12 +93,16 @@ def test_concept_sources_run(src):
 
 # ---------------------------------------------------------------------------- v3 hardening
 def test_gate_halts_below_floor():
-    """§1.4: the orchestrator HALTS (FeatureHeadGateError) when the head is below the 0.55 floor."""
-    u.enforce_feature_gate({"feat_top1": 0.70}, "smoke")            # OK, no raise
+    """§4: the orchestrator HALTS (FeatureHeadGateError) when the IN-DOMAIN head is below 0.55."""
+    u.enforce_feature_gate({"feat_top1": 0.70}, "smoke")                       # OK, no raise
     with pytest.raises(FeatureHeadGateError):
-        u.enforce_feature_gate({"feat_top1": 0.162}, "smoke")       # the v2 broken-head value
+        u.enforce_feature_gate({"feat_top1": 0.162}, "smoke")                  # smoke proxy below floor
     with pytest.raises(FeatureHeadGateError):
-        u.enforce_feature_gate({"feat_top1_cleancub": 0.40}, "real")
+        u.enforce_feature_gate({"feat_top1_indomain_typical": 0.246}, "real")  # the v3 in-domain value
+    # the clean-CUB anchor is NO LONGER the gate: a high anchor with a low in-domain head still halts
+    with pytest.raises(FeatureHeadGateError):
+        u.enforce_feature_gate({"feat_top1_indomain_typical": 0.40,
+                                "feat_top1_cleancub": 0.70}, "real")
 
 
 def test_degraded_smoke_head_halts_run():
