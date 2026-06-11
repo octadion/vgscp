@@ -75,5 +75,13 @@ python -m pytest tests/test_celeba_parse.py            # CelebA metadata parser
 # REAL grid   (Colab GPU): notebooks/grid_robust_train.ipynb
 #   build features (CLIP + ERM-ResNet-50) for Waterbirds[+CelebA] -> 5 last-layer arms
 #   -> RESULTS_study.md (accuracy-matched H1 up front) + CSVs + figures -> STOP before heavy arms.
+# REANALYZE existing results (Tasks A/B, NO retraining): notebooks/reanalyze_results.ipynb, or
+#   python -c "from study_robust_train.grid import reanalyze; reanalyze('results/study/grid_records.csv')"
 ```
+
+**H2/H3 reporting (post-Waterbirds-run hardening):** H3 is measured on **burden survival** — divergence
+survival AND **set-size-disparity relocation** vs ρ — with coverage stability reported separately (flat
+coverage + growing sets = "relocate, not remove"). H2 inversions are flagged **`inversion_real`** only
+when the cov_gap difference CI excludes 0 (overlapping CIs → noise). CelebA §2 gate: DFR hard-floor 0.80,
+soft-flag <0.85; ERM-ResNet trains on a documented random subsample to stay <5h.
 </content>

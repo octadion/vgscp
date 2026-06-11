@@ -46,6 +46,7 @@ def _features_for(backbone: str, paths_by_split: dict, y_by_split: dict, cfg: di
                                      device=rcfg.get("device", "cuda"),
                                      epochs=rcfg.get("epochs", 10), lr=rcfg.get("lr", 1e-3),
                                      batch_size=rcfg.get("batch_size", 128),
+                                     max_train=rcfg.get("max_train"),
                                      cache_dir=rcfg.get("cache_dir", "results/cache_resnet"))
     raise ValueError(f"unknown backbone {backbone!r}")
 

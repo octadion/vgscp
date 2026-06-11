@@ -61,15 +61,28 @@ def main() -> int:
 
     print("\n[3] verdicts produced per (backbone, dataset)")
     _check("verdicts for both keys", set(out["verdicts"]) == set(data))
+    valid_labels = lambda s: s == "survived" or s == "never_held" or s.startswith("held_then_broke@") or s.startswith("undefined@")
     for key, v in out["verdicts"].items():
         _check(f"{key}: H1 has all robust methods", set(v["h1"]["methods"]) == set(m for m in METHODS if m != "erm"))
         _check(f"{key}: H1 GO flag is boolean per method",
                all(isinstance(mr["GO"], bool) for mr in v["h1"]["methods"].values()))
-        _check(f"{key}: H2 reports two rankings + inversion bool",
-               "ranking_by_accuracy" in v["h2"] and isinstance(v["h2"]["inversion"], bool))
-        _check(f"{key}: H3 has a rho curve per robust method/score",
-               all(all("curve" in v["h3"]["methods"][m][sc] for sc in SCORES)
-                   for m in v["h3"]["methods"]))
+        # Task B: H2 CIs + inversion_real
+        h2 = v["h2"]
+        _check(f"{key}: H2 has rankings + inversion_real bool + per-method burden CIs",
+               "ranking_by_accuracy" in h2 and isinstance(h2["inversion_real"], bool)
+               and all(len(h2["burden_ci"][m]) == 2 for m in h2["burden"]))
+        _check(f"{key}: H2 inversion_real implies point inversion",
+               (not h2["inversion_real"]) or h2["inversion_point"])
+        # Task A: H3 divergence failure-types + set-size relocation channel + coverage separate
+        h3 = v["h3"]
+        _check(f"{key}: H3 divergence curve + valid failure_type per robust method/score",
+               all(all(("divergence_curve" in h3["methods"][m]["per_score"][sc])
+                       and valid_labels(h3["methods"][m]["per_score"][sc]["failure_type"])
+                       for sc in SCORES) for m in h3["methods"]))
+        _check(f"{key}: H3 has set-size-disparity relocation curve per robust method",
+               all("setsize_disparity_curve" in h3["methods"][m] for m in h3["methods"]))
+        _check(f"{key}: H3 reports coverage stability SEPARATELY (incl ERM)",
+               "erm" in h3["coverage_stability"])
 
     print("\n[4] accuracy-matching branch engaged (matched True and/or infeasible handled)")
     sample_key = next(iter(out["verdicts"]))
@@ -88,6 +101,17 @@ def main() -> int:
     write_results_md(out, md_path, synthetic=True)
     _check("CSV written", os.path.exists(csv_path) and os.path.getsize(csv_path) > 0)
     _check("RESULTS_study (synthetic) written", os.path.exists(md_path) and os.path.getsize(md_path) > 0)
+
+    print("\n[6] reanalyze() round-trips from CSV (Tasks A/B with NO retraining)")
+    from .grid import build_verdicts, records_from_csv
+    reloaded = records_from_csv(csv_path)
+    _check("records reload from CSV (count preserved)", len(reloaded) == len(recs))
+    rv = build_verdicts(reloaded)
+    _check("verdicts recomputed from reloaded CSV match keys", set(rv) == set(out["verdicts"]))
+    # H2 inversion_real reproducible from CSV (deterministic bootstrap seed)
+    k0 = next(iter(rv))
+    _check("H2 inversion_real reproducible from CSV",
+           rv[k0]["h2"]["inversion_real"] == out["verdicts"][k0]["h2"]["inversion_real"])
 
     print("\n" + "=" * 78)
     print("GRID LOGIC OK — full H1/H2/H3 chain + emitters validated on synthetic.")

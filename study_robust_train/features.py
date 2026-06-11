@@ -34,11 +34,18 @@ def clip_features(paths: list, *, model_name="ViT-B-32", pretrained="openai", de
 
 def resnet50_erm_features(paths_by_split: dict, y_by_split: dict, *, train_split="train",
                           cache_dir="results/cache_resnet", tag="", device="cuda",
-                          epochs=10, lr=1e-3, batch_size=128, image_size=224, seed=0) -> dict:
+                          epochs=10, lr=1e-3, batch_size=128, image_size=224, seed=0,
+                          max_train=None) -> dict:
     """Train ERM ResNet-50 on ``train_split`` images, return {split: (N,2048) L2-normalized feats}.
 
     Standard ERM (no group info): ImageNet-pretrained ResNet-50, fc -> n_classes, cross-entropy.
     Penultimate (post-avgpool, pre-fc) features are extracted for ALL splits and cached. Colab-only.
+
+    ``max_train`` (spec §3 budget): if set, the ERM backbone is trained on a seeded RANDOM
+    subsample of ``max_train`` train images. Random (NOT class-balanced) is deliberate — it
+    PRESERVES the in-domain composited spurious correlation the ERM head must learn (class-
+    balancing would distort it). Feature EXTRACTION still covers every split in full; only the
+    backbone's training set is subsampled. The §2 worst-group accuracy gate re-verifies sanity.
     """
     try:
         import torch
@@ -81,9 +88,16 @@ def resnet50_erm_features(paths_by_split: dict, y_by_split: dict, *, train_split
     net.fc = nn.Linear(net.fc.in_features, n_classes)
     net = net.to(dev)
 
-    # ERM training on the in-domain composited train split
-    tr = DataLoader(_DS(paths_by_split[train_split], y_by_split[train_split]),
-                    batch_size=batch_size, shuffle=True, num_workers=2)
+    # ERM training on the in-domain composited train split (optionally random-subsampled to budget)
+    tr_paths = list(paths_by_split[train_split])
+    tr_y = np.asarray(y_by_split[train_split])
+    if max_train is not None and len(tr_paths) > max_train:
+        sub = np.random.default_rng(seed).choice(len(tr_paths), size=int(max_train), replace=False)
+        tr_paths = [tr_paths[i] for i in sub]
+        tr_y = tr_y[sub]
+        print(f"[resnet50-erm {tag}] training on random subsample {len(tr_paths)}/"
+              f"{len(paths_by_split[train_split])} (in-domain preserved; §2 gate re-verifies)")
+    tr = DataLoader(_DS(tr_paths, tr_y), batch_size=batch_size, shuffle=True, num_workers=2)
     opt = torch.optim.Adam(net.parameters(), lr=lr)
     crit = nn.CrossEntropyLoss()
     net.train()

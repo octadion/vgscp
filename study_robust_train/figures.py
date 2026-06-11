@@ -54,33 +54,41 @@ def make_figures(out: dict, outdir: str) -> list:
             p = os.path.join(outdir, f"burden_{bb}_{ds}.png"); fig.savefig(p, dpi=120); written.append(p)
         plt.close(fig)
 
-        # 2) worst-group coverage & mean set size vs rho
+        # 2) coverage stability (NOT the H3 criterion) + the two burden channels vs rho
         rhos = sorted({r["rho_test"] for r in records}, reverse=True)
-        fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4))
+        fig, (a1, a2, a3) = plt.subplots(1, 3, figsize=(16, 4.2))
         for m in methods:
             cov = [_agg(records, m, key, "worst_group_cov", rho, "APS") for rho in rhos]
             sz = [_agg(records, m, key, "mean_set_size", rho, "APS") for rho in rhos]
-            a1.plot(rhos, cov, marker="o", label=m)
-            a2.plot(rhos, sz, marker="o", label=m)
+            disp = [_agg(records, m, key, "set_size_disparity", rho, "APS") for rho in rhos]
+            lw = 2.4 if m == "erm" else 1.4
+            a1.plot(rhos, cov, marker="o", label=m, lw=lw)
+            a2.plot(rhos, sz, marker="o", label=m, lw=lw)
+            a3.plot(rhos, disp, marker="o", label=m, lw=lw)
         a1.axhline(0.9, color="k", ls="--", lw=0.8, label="target 1-α")
-        a1.set_xlabel("ρ_test"); a1.set_ylabel("worst-group coverage"); a1.invert_xaxis()
-        a2.set_xlabel("ρ_test"); a2.set_ylabel("mean set size"); a2.invert_xaxis()
-        a1.set_title("worst-group coverage vs shift"); a2.set_title("set size vs shift")
+        for a in (a1, a2, a3):
+            a.set_xlabel("ρ_test"); a.invert_xaxis()
+        a1.set_ylabel("worst-group coverage"); a2.set_ylabel("mean set size")
+        a3.set_ylabel("set-size disparity (max−min group)")
+        a1.set_title("coverage stability (reported, not H3 criterion)")
+        a2.set_title("set size vs shift")
+        a3.set_title("BURDEN RELOCATION: set-size disparity vs shift")
         a1.legend(fontsize=7); plt.tight_layout()
         p = os.path.join(outdir, f"shift_{bb}_{ds}.png"); fig.savefig(p, dpi=120); written.append(p)
         plt.close(fig)
 
-        # 3) accuracy vs burden ranking scatter (H2)
+        # 3) accuracy vs burden ranking scatter (H2) with burden CIs (Task B)
         h2 = v["h2"]
-        fig, ax = plt.subplots(figsize=(6, 5))
+        fig, ax = plt.subplots(figsize=(6.2, 5))
         for m in methods:
-            ax.scatter(h2["worst_group_acc"][m], h2["burden"][m], s=60)
-            ax.annotate(m, (h2["worst_group_acc"][m], h2["burden"][m]), fontsize=8,
-                        xytext=(4, 4), textcoords="offset points")
+            x = h2["worst_group_acc"][m]; y = h2["burden"][m]; ci = h2["burden_ci"][m]
+            ax.errorbar(x, y, yerr=[[y - ci[0]], [ci[1] - y]], fmt="o", ms=7, capsize=4)
+            ax.annotate(m, (x, y), fontsize=8, xytext=(5, 4), textcoords="offset points")
         ax.set_xlabel("worst-group accuracy (higher better)")
-        ax.set_ylabel(f"conformal burden: {h2['burden_key']} (lower better)")
-        ax.set_title(f"H2 accuracy vs burden — {bb}/{ds}"
-                     + ("  [INVERSION]" if h2["inversion"] else ""))
+        ax.set_ylabel(f"conformal burden: {h2['burden_key']} (lower better) ±95% CI")
+        tag = "[INVERSION-REAL]" if h2["inversion_real"] else (
+              "[inversion (CIs overlap → noise)]" if h2["inversion_point"] else "[no inversion]")
+        ax.set_title(f"H2 accuracy vs burden — {bb}/{ds}  {tag}")
         plt.tight_layout()
         p = os.path.join(outdir, f"h2_ranking_{bb}_{ds}.png"); fig.savefig(p, dpi=120); written.append(p)
         plt.close(fig)
