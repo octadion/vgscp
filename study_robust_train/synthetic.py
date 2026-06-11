@@ -39,6 +39,44 @@ def _make_split(n: int, rho: float, d: int, rng) -> tuple:
     return _l2(X), y, place
 
 
+def make_synthetic_griddata(*, backbone: str = "synthetic", dataset: str = "synthetic",
+                            n_pool: int = 6000, d: int = 32, rho_pool: float = 0.85,
+                            core_scale: float = 1.2, spur_scale: float = 1.6, seed: int = 0):
+    """Synthetic GridData for LOCAL grid logic-validation only (no torch/data).
+
+    Generates a composited pool with both core (y) and spurious (place) signal, then splits into
+    train / reweight (d_learn analogue) / eval_domain. ``spur_scale > core_scale`` makes the
+    spurious cue strong so ERM-vs-robust behave differently and base accuracies spread (so the
+    accuracy-matching branch is exercised). NOT a result generator — toy numbers only.
+    """
+    from .grid import GridData
+    rng = np.random.default_rng(seed)
+    X, y, place = _make_split_scaled(n_pool, rho_pool, d, rng, core_scale, spur_scale)
+    g = (2 * y + place).astype(int)
+    idx = rng.permutation(n_pool)
+    a, b = n_pool // 3, 2 * n_pool // 3
+    tr, rw, ev = idx[:a], idx[a:b], idx[b:]
+    return GridData(
+        backbone=backbone, dataset=dataset,
+        train=(X[tr], y[tr], g[tr]),
+        reweight=(X[rw], y[rw], g[rw]),
+        eval_domain=(X[ev], y[ev], g[ev]),
+        n_classes=2,
+    )
+
+
+def _make_split_scaled(n, rho, d, rng, core_scale, spur_scale):
+    y = rng.integers(0, 2, size=n)
+    concord = rng.random(n) < rho
+    place = np.where(concord, y, 1 - y).astype(int)
+    X = rng.standard_normal((n, d)).astype(np.float64) * 0.5
+    X[:, 0] += np.where(y == 1, core_scale, -core_scale)
+    X[:, 1] += np.where(y == 1, core_scale * 0.7, -core_scale * 0.7)
+    X[:, 2] += np.where(place == 1, spur_scale, -spur_scale)
+    X[:, 3] += np.where(place == 1, spur_scale * 0.7, -spur_scale * 0.7)
+    return _l2(X), y, place
+
+
 def make_synthetic_phase0(*, n_train: int = 1200, n_test: int = 1200, d: int = 32,
                           rho_train: float = 0.95, rho_test: float = 0.95,
                           seed: int = 0) -> Phase0Data:

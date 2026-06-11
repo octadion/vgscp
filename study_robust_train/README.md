@@ -1,8 +1,10 @@
 # study_robust_train — Pre-Registered Campaign v2 ("Conformal Burden")
 
-Clean module for the v2 hardened study. **This turn delivers Phase-0 only.** The full H1/H2/H3
-grid is intentionally **not** here — Phase-0-then-STOP is a hard discipline (spec §1): run the
-minimal pilot, hand the numbers to the researcher, and **halt for human review** before any grid.
+Clean module for the v2 hardened study. Phase-0 passed on real Colab (DFR materially > ERM
+worst-group; the published 0.86–0.92 reference is ERM-ResNet-specific, so CLIP ViT-B/32 landing
+lower is a reference mismatch, not a break). The module now also contains the **H1/H2/H3 grid**
+(cheap-first last-layer arms) — which **STOPS** before the optional heavy full-GroupDRO fine-tune
+and any 3rd/4th dataset.
 
 See [../AUDIT_study.md](../AUDIT_study.md) for the full diff of the v4 codebase against the spec's
 §2 hard preconditions and the reuse/dead-code decisions that shaped this module.
@@ -44,19 +46,34 @@ floor* on the species head — a necessary-not-sufficient precondition, not the 
 |---|---|
 | `heads.py` | ERM + DFR last-layer heads on frozen features (reuses the standardized probe + L2 guard) |
 | `divergence.py` | **fresh** §4 metric: W1 + KS cross-group conformity-score divergence (APS/RAPS/THR), per score function |
-| `metrics.py` | per-group / worst-group accuracy on the Waterbirds 4-group structure |
+| `metrics.py` | per-group / worst-group accuracy on the 4-group structure |
 | `phase0.py` | Phase-0 orchestrator (ERM+DFR, seeds → worst-group acc + APS divergence) then STOP |
-| `synthetic.py` | synthetic frozen-feature generator for LOCAL logic validation only |
-| `validate_synthetic.py` | runs the machinery on synthetic data, asserts the wiring; **claims no real numbers** |
+| **`methods.py`** | the 5 last-layer methods: erm, dfr, **afr** (group-label-free), **groupdro_ll** (numpy online GroupDRO), **balanced_subsample** |
+| **`conformal_eval.py`** | per-(score, ρ, cal-split) eval: calibrate@ρ_cal=0.95, eval@ρ_test → worst-group cov / set size / cov gap / cross-group divergence |
+| **`accuracy_matching.py`** | §5 confound control — **accuracy-matched** divergence (the H1 readout); raw kept separate, labeled "uncontrolled" |
+| **`verdicts.py`** | H1 (matched-divergence CI excludes 0 on ≥2/3 scores), H2 (accuracy-vs-burden ranking inversion), H3 (ρ-survival) |
+| **`grid.py`** | grid orchestrator (backbone × dataset × method × seed × score × ρ × split) + §2 worst-group gate + CSV/RESULTS_study.md emitters |
+| **`features.py`** | frozen backbones: CLIP ViT-B/32 (reused) + **ERM ResNet-50** train+extract (Colab-only) |
+| **`datasets.py`** | backbone-agnostic dataset→`GridData` adapter (Waterbirds + CelebA, no CUB coupling) |
+| **`figures.py`** | spec §8 figures: accuracy-matched burden, shift curves, H2 ranking scatter |
+| `synthetic.py` | synthetic frozen-feature + GridData generators for LOCAL logic validation only |
+| `validate_synthetic.py` | Phase-0 machinery synthetic logic check; **claims no real numbers** |
+| **`validate_grid.py`** | full H1/H2/H3 grid synthetic logic check (5 methods, scores, ρ, matching, verdicts, emitters); **claims no real numbers** |
+
+Backbone naming: `resnet50_erm` (primary, literature-comparable), `clip_vitb32` (secondary). The
+spec's "CLIP linear probe" baseline == (`erm` × `clip_vitb32`); the backbone axis covers it (no
+redundant arm). The heavy full-GroupDRO fine-tune and 3rd/4th datasets are **not** here (post-checkpoint).
 
 ## Run
 ```bash
 # LOCAL — logic validation on synthetic features (no torch/data; claims NO real numbers):
-python -m study_robust_train.validate_synthetic        # exits 0 on PASS
+python -m study_robust_train.validate_synthetic        # Phase-0 machinery (exit 0 on PASS)
+python -m study_robust_train.validate_grid             # full H1/H2/H3 grid chain (exit 0 on PASS)
+python -m pytest tests/test_celeba_parse.py            # CelebA metadata parser
 
-# REAL Phase-0 (Colab GPU): notebooks/phase0_robust_train.ipynb
-#   fetch/cache Waterbirds frozen CLIP features -> train ERM + DFR (3 seeds)
-#   -> print worst-group accuracies + sample APS divergence -> CHECK the DFR~0.86-0.92 /
-#      ERM~0.6-0.75 gate -> STOP. It does NOT proceed to the grid.
+# REAL Phase-0 (Colab GPU): notebooks/phase0_robust_train.ipynb  (done — passed)
+# REAL grid   (Colab GPU): notebooks/grid_robust_train.ipynb
+#   build features (CLIP + ERM-ResNet-50) for Waterbirds[+CelebA] -> 5 last-layer arms
+#   -> RESULTS_study.md (accuracy-matched H1 up front) + CSVs + figures -> STOP before heavy arms.
 ```
 </content>
