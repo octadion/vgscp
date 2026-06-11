@@ -72,7 +72,7 @@ def make_figures(out: dict, outdir: str) -> list:
         a3.set_ylabel("set-size disparity (max−min group)")
         a1.set_title("coverage stability (reported, not H3 criterion)")
         a2.set_title("set size vs shift")
-        a3.set_title("BURDEN RELOCATION: set-size disparity vs shift")
+        a3.set_title("set-size disparity vs ρ (observed trend)")
         a1.legend(fontsize=7); plt.tight_layout()
         p = os.path.join(outdir, f"shift_{bb}_{ds}.png"); fig.savefig(p, dpi=120); written.append(p)
         plt.close(fig)

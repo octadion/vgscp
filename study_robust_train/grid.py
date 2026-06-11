@@ -219,7 +219,7 @@ def write_results_md(out: dict, path: str, *, synthetic: bool = False):
             L.append("  - point inversion but CIs OVERLAP → treat as noise, not a real inversion.")
         L.append("")
 
-        # H3 — burden survival (Task A): divergence channel + set-size relocation, coverage separate
+        # H3 — burden survival (Task A): divergence channel + set-size disparity trend, coverage separate
         h3 = v["h3"]
         L.append(f"### H3 (Shift survival) — calibrate ρ={h3['rho_cal']}, sweep {h3['rho_sweep']}\n")
         L.append(f"_What H3 measures (NOT coverage): {h3['criterion']}_\n")
@@ -229,25 +229,29 @@ def write_results_md(out: dict, path: str, *, synthetic: bool = False):
         for m, mm in h3["methods"].items():
             for sc, r in mm["per_score"].items():
                 L.append(f"| {m} | {sc} | {r['failure_type']} |")
-        L.append("\n_Labels: survived / never_held / held_then_broke@ρ / undefined@ρ "
-                 "(matched comparison undefined where accuracy supports don't overlap)._\n")
-        L.append("**(2) Set-size disparity vs ρ — does the burden RELOCATE to set-size inflation? "
-                 "(burden2026: relocate, not remove)**\n")
-        L.append("| method | ρ=0.95 | ρ=0.50 | inflates under shift | (robust − ERM) @ρ=0.50 |")
+        L.append("\n_Labels: survived / never_held / held_then_broke@ρ / undefined@ρ. "
+                 "'undefined@ρ' = matched comparison undefined where accuracy supports don't overlap "
+                 "at that ρ — report as undefined, NOT as collapse._\n")
+        L.append("**(2) Set-size disparity vs ρ — OBSERVED trend (data-driven, no assumed relocation):**\n")
+        L.append("| method | disparity @ρ=0.95 | disparity @ρ=0.50 | trend | (robust − ERM) @ρ=0.50 |")
         L.append("|---|---|---|---|---|")
         for m, mm in h3["methods"].items():
             sd = {d["rho_test"]: d for d in mm["setsize_disparity_curve"]}
             lo_rho = min(h3["rho_sweep"]); hi_rho = max(h3["rho_sweep"])
             L.append(f"| {m} | {sd[hi_rho]['robust']:.3f} | {sd[lo_rho]['robust']:.3f} | "
-                     f"{mm['setsize_inflates_under_shift']} | {sd[lo_rho]['robust_minus_erm']:+.3f} |")
-        L.append("")
+                     f"{mm['setsize_trend']} | {sd[lo_rho]['robust_minus_erm']:+.3f} |")
+        L.append("\n_'grows' = sets enlarge under shift; 'eases' = disparity is maximal at ρ_cal and "
+                 "shrinks as ρ→0.5; 'flat' = unchanged. Where the trend is 'eases'/'flat', there is "
+                 "NO relocation to report — do not impose the 'relocate, not remove' framing._\n")
         L.append("**Coverage stability (reported, NOT the H3 criterion):**\n")
-        L.append("| method | worst-group cov range over ρ | flat (<0.05) |")
-        L.append("|---|---|---|")
+        L.append("| method | mean worst-group cov | target 1-α | range over ρ | flat (<0.05) | sub-target |")
+        L.append("|---|---|---|---|---|---|")
         for m, cs in h3["coverage_stability"].items():
-            L.append(f"| {m} | {cs['range']:.3f} | {cs['flat']} |")
-        L.append("\n_Flat coverage with growing set-size disparity = the burden relocated to set "
-                 "size under shift, not removed — the expected 'relocate, not remove' story._\n")
+            L.append(f"| {m} | {cs['mean']:.3f} | {cs['target']:.3f} | {cs['range']:.3f} | "
+                     f"{cs['flat']} | {cs['sub_target']} |")
+        L.append("\n_Read H3 from the data: e.g. worst-group coverage stable but sub-target, set-size "
+                 "disparity maximal at ρ_cal and easing as ρ→0.5, matched-divergence survival undefined "
+                 "→ no shift collapse and no relocation. State whatever the columns show._\n")
 
     if out.get("flagged"):
         L.append("## Flagged arms (soft worst-group warning — kept, not excluded)\n")

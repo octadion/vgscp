@@ -80,8 +80,10 @@ python -m pytest tests/test_celeba_parse.py            # CelebA metadata parser
 ```
 
 **H2/H3 reporting (post-Waterbirds-run hardening):** H3 is measured on **burden survival** — divergence
-survival AND **set-size-disparity relocation** vs ρ — with coverage stability reported separately (flat
-coverage + growing sets = "relocate, not remove"). H2 inversions are flagged **`inversion_real`** only
-when the cov_gap difference CI excludes 0 (overlapping CIs → noise). CelebA §2 gate: DFR hard-floor 0.80,
-soft-flag <0.85; ERM-ResNet trains on a documented random subsample to stay <5h.
+survival (or *undefined* where accuracy supports don't overlap) AND the **observed set-size-disparity
+trend** vs ρ (`eases`/`grows`/`flat`, data-driven — **no assumed relocation**) — with coverage stability
+(and sub-target) reported separately. The "relocate, not remove" reading is NOT imposed where the data
+doesn't show it (e.g. disparity easing as ρ→0.5 is not relocation). H2 inversions are flagged
+**`inversion_real`** only when the cov_gap difference CI excludes 0 (overlapping CIs → noise). CelebA §2
+gate: DFR hard-floor 0.80, soft-flag <0.85; ERM-ResNet trains on a documented random subsample to stay <5h.
 </content>

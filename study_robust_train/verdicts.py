@@ -12,12 +12,14 @@ H2 (Ranking inversion — headline): rank methods by worst-group ACCURACY and by
 
 H3 (Shift survival): calibrate at rho_cal=0.95, sweep rho_test. H3 is measured on the BURDEN
   quantities, NOT on coverage. Two channels, reported separately from coverage stability:
-    (1) divergence survival : does the H1 accuracy-matched reduction hold across the sweep?
-    (2) set-size disparity   : does the burden RELOCATE to set-size inflation as rho falls?
-  Coverage stability (worst-group coverage vs rho) is reported alongside but is NOT the H3
-  criterion — flat coverage with growing sets is "relocate, not remove" (burden2026), the
-  expected story. Each method/score is labeled: survived / never_held / held_then_broke@rho /
-  undefined@rho.
+    (1) divergence survival : does the H1 accuracy-matched reduction hold across the sweep, or is
+        it UNDEFINED where accuracy supports don't overlap at shifted rho?
+    (2) set-size disparity   : its OBSERVED trend vs rho (eases / grows / flat) — data-driven, NO
+        assumed relocation. Report whatever the trend is.
+  Coverage stability (worst-group coverage vs rho, and whether sub-target) is reported alongside
+  but is NOT the H3 criterion. Do NOT impose a "relocate, not remove" reading where the data does
+  not show it (e.g. disparity easing as rho->0.5 is not relocation). Divergence labels:
+  survived / never_held / held_then_broke@rho / undefined@rho.
 """
 from __future__ import annotations
 
@@ -155,10 +157,14 @@ def h3_verdict(records, robust_methods, *, scores=SCORES,
                rho_sweep=(0.95, 0.90, 0.80, 0.70, 0.60, 0.50), reference="erm",
                metric="div_wasserstein1", n_boot=2000, seed=0) -> dict:
     out = {"rho_cal": 0.95, "rho_sweep": list(rho_sweep), "reference": reference, "metric": metric,
-           "criterion": ("burden survival, NOT coverage. (1) divergence: H1 matched reduction holds "
-                         "across sweep; (2) set-size disparity vs rho (relocation channel). Coverage "
-                         "stability reported separately."),
+           "criterion": ("burden survival, NOT coverage. (1) divergence: does the H1 matched reduction "
+                         "hold across the sweep, or is it UNDEFINED where accuracy supports don't "
+                         "overlap; (2) set-size disparity vs rho, reported with its OBSERVED trend "
+                         "(eases / grows / flat) -- no assumed relocation. Coverage stability (and "
+                         "whether sub-target) reported separately."),
            "methods": {}, "coverage_stability": {}, "setsize_disparity_by_method": {}}
+
+    target = 1.0 - float(records[0]["alpha"]) if records else float("nan")
 
     # coverage stability (reported, NOT the criterion) + raw set-size disparity per method (all methods incl ERM)
     all_methods = sorted(set(robust_methods) | {reference})
@@ -166,9 +172,12 @@ def h3_verdict(records, robust_methods, *, scores=SCORES,
         cov_curve = [{"rho_test": rho, "worst_group_cov": _mean(_vals(records, m, "worst_group_cov", rho, scores))}
                      for rho in rho_sweep]
         covs = np.array([c["worst_group_cov"] for c in cov_curve])
+        mean_cov = float(np.nanmean(covs)) if covs.size else float("nan")
         out["coverage_stability"][m] = {"curve": cov_curve,
+                                        "mean": mean_cov, "target": target,
                                         "range": float(np.nanmax(covs) - np.nanmin(covs)) if covs.size else float("nan"),
-                                        "flat": bool(covs.size and (np.nanmax(covs) - np.nanmin(covs)) < 0.05)}
+                                        "flat": bool(covs.size and (np.nanmax(covs) - np.nanmin(covs)) < 0.05),
+                                        "sub_target": bool(mean_cov < target)}
         out["setsize_disparity_by_method"][m] = [
             {"rho_test": rho, "set_size_disparity": _mean(_vals(records, m, "set_size_disparity", rho, scores)),
              "worst_group_set_size": _mean(_vals(records, m, "worst_group_set_size", rho, scores))}
@@ -189,7 +198,7 @@ def h3_verdict(records, robust_methods, *, scores=SCORES,
             ftype = _failure_type(div_curve)
             per_score[sc] = {"divergence_curve": div_curve, "failure_type": ftype,
                              "survived": ftype == "survived"}
-        # set-size relocation channel (per method, score-agnostic raw disparity vs ERM)
+        # set-size disparity channel (per method, score-agnostic raw disparity vs ERM)
         sd_curve = []
         for d in out["setsize_disparity_by_method"][m]:
             rho = d["rho_test"]
@@ -197,9 +206,18 @@ def h3_verdict(records, robust_methods, *, scores=SCORES,
                              "erm": erm_sd.get(rho, float("nan")),
                              "robust_minus_erm": d["set_size_disparity"] - erm_sd.get(rho, float("nan")),
                              "worst_group_set_size": d["worst_group_set_size"]})
+        # OBSERVED trend of set-size disparity from rho_cal (sd_curve[0]) to rho_min (sd_curve[-1]).
+        # Data-driven: do NOT assume relocation/inflation. "grows" = larger sets under shift,
+        # "eases" = smaller, "flat" = unchanged.
         sizes = np.array([d["robust"] for d in sd_curve])
-        # relocation flag: disparity grows as rho falls (correlation of disparity with (1-rho))
-        inflates = bool(sizes.size >= 2 and sizes[-1] > sizes[0])
+        eps = 1e-3
+        if sizes.size >= 2 and sizes[-1] > sizes[0] + eps:
+            trend = "grows"
+        elif sizes.size >= 2 and sizes[-1] < sizes[0] - eps:
+            trend = "eases"
+        else:
+            trend = "flat"
         out["methods"][m] = {"per_score": per_score, "setsize_disparity_curve": sd_curve,
-                             "setsize_inflates_under_shift": inflates}
+                             "setsize_trend": trend,
+                             "setsize_inflates_under_shift": bool(trend == "grows")}
     return out

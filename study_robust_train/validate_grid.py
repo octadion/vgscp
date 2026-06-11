@@ -73,16 +73,18 @@ def main() -> int:
                and all(len(h2["burden_ci"][m]) == 2 for m in h2["burden"]))
         _check(f"{key}: H2 inversion_real implies point inversion",
                (not h2["inversion_real"]) or h2["inversion_point"])
-        # Task A: H3 divergence failure-types + set-size relocation channel + coverage separate
+        # Task A: H3 divergence failure-types + set-size disparity trend + coverage separate
         h3 = v["h3"]
         _check(f"{key}: H3 divergence curve + valid failure_type per robust method/score",
                all(all(("divergence_curve" in h3["methods"][m]["per_score"][sc])
                        and valid_labels(h3["methods"][m]["per_score"][sc]["failure_type"])
                        for sc in SCORES) for m in h3["methods"]))
-        _check(f"{key}: H3 has set-size-disparity relocation curve per robust method",
-               all("setsize_disparity_curve" in h3["methods"][m] for m in h3["methods"]))
-        _check(f"{key}: H3 reports coverage stability SEPARATELY (incl ERM)",
-               "erm" in h3["coverage_stability"])
+        _check(f"{key}: H3 set-size-disparity curve + data-driven trend (eases/grows/flat) per method",
+               all(("setsize_disparity_curve" in h3["methods"][m])
+                   and h3["methods"][m]["setsize_trend"] in {"eases", "grows", "flat"}
+                   for m in h3["methods"]))
+        _check(f"{key}: H3 reports coverage stability SEPARATELY w/ sub-target flag (incl ERM)",
+               "erm" in h3["coverage_stability"] and "sub_target" in h3["coverage_stability"]["erm"])
 
     print("\n[4] accuracy-matching branch engaged (matched True and/or infeasible handled)")
     sample_key = next(iter(out["verdicts"]))
