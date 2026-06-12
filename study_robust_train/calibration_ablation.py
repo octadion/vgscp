@@ -17,6 +17,8 @@ Pre-registered hypotheses (report all; negatives valid):
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 from . import metrics
@@ -61,6 +63,12 @@ def run_ablation(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep
                                             "method": method, "train_seed": seed,
                                             "worst_group_acc": wg_acc})
                                 records.append(rec)
+    verdicts = _build_verdicts(records, scores=scores, rho_sweep=rho_sweep, alpha=alpha)
+    return {"records": records, "excluded": excluded, "verdicts": verdicts, "alpha": alpha,
+            "calibrations": list(calibrations), "rho_sweep": list(rho_sweep)}
+
+
+def _build_verdicts(records, *, scores, rho_sweep, alpha) -> dict:
     verdicts = {}
     for key in sorted({(r["backbone"], r["dataset"]) for r in records}):
         recs = [r for r in records if (r["backbone"], r["dataset"]) == key]
@@ -68,8 +76,7 @@ def run_ablation(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep
         verdicts[key] = {"C1": c1_verdict(recs, present, alpha=alpha, scores=scores),
                          "C2": c2_verdict(recs, present, alpha=alpha),
                          "C3": c3_verdict(recs, present, alpha=alpha, scores=scores, rho_sweep=rho_sweep)}
-    return {"records": records, "excluded": excluded, "verdicts": verdicts, "alpha": alpha,
-            "calibrations": list(calibrations), "rho_sweep": list(rho_sweep)}
+    return verdicts
 
 
 # ---------------------------------------------------------------------------------------
@@ -167,6 +174,63 @@ def write_csv(records, path):
         w.writeheader()
         for r in records:
             w.writerow(r)
+
+
+_FLOAT_COLS = {"alpha", "rho_cal", "rho_test", "worst_group_acc", "base_top1", "marginal_cov",
+               "worst_group_cov", "cov_gap", "mean_set_size", "worst_group_set_size"}
+_INT_COLS = {"train_seed", "split_seed"}
+
+
+def records_from_csv(path: str) -> list:
+    """Load ablation records from a CSV written by write_csv (coercing numeric columns)."""
+    import csv
+    out = []
+    with open(path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            r = {}
+            for k, val in row.items():
+                r[k] = float(val) if k in _FLOAT_COLS else int(float(val)) if k in _INT_COLS else val
+            out.append(r)
+    return out
+
+
+def reanalyze(csv_path: str, *, md_path: str = "CALIBRATION_ABLATION.md",
+              figdir: str = "results/study/figures", make_figs: bool = True,
+              excluded: list | None = None) -> dict:
+    """Recompute C1/C2/C3 from a saved CSV (scores/ρ/calibrations inferred) and rewrite the MD +
+    figures from the FULL record set. No retraining. Used to regenerate after appending cells."""
+    records = records_from_csv(csv_path)
+    scores = tuple(sorted({r["score"] for r in records}))
+    rho_sweep = tuple(sorted({r["rho_test"] for r in records}, reverse=True))
+    cals = tuple(sorted({r["calibration"] for r in records}))
+    alpha = float(records[0]["alpha"]) if records else 0.1
+    out = {"records": records, "excluded": excluded or [], "alpha": alpha,
+           "calibrations": list(cals), "rho_sweep": list(rho_sweep),
+           "verdicts": _build_verdicts(records, scores=scores, rho_sweep=rho_sweep, alpha=alpha)}
+    figs = make_c1_figure(out, figdir) if make_figs else []
+    write_calibration_ablation_md(out, md_path, fig_paths=figs)
+    return out
+
+
+def extend_ablation_to(data_by_key: dict, *, csv_path: str = "results/study/calibration_ablation.csv",
+                       md_path: str = "CALIBRATION_ABLATION.md", figdir: str = "results/study/figures",
+                       methods=METHODS, scores=SCORES, rho_sweep=RHO_SWEEP, calibrations=CALIBRATIONS,
+                       seeds=(0, 1, 2), n_splits=10, alpha=0.1, method_hp=None) -> dict:
+    """Run the ablation on NEW cells (e.g. CelebA) and MERGE into the existing CSV WITHOUT
+    overwriting other datasets' rows: existing rows for the new (backbone,dataset) keys are
+    replaced, all other rows are kept. Then regenerate the MD + figures from the full set.
+    Idempotent: re-running the same cells replaces (not duplicates) their rows. AFR on CelebA is
+    excluded by the §2 worst-group-accuracy gate (logged in `excluded`)."""
+    new = run_ablation(data_by_key, methods=methods, scores=scores, rho_sweep=rho_sweep,
+                       calibrations=calibrations, seeds=seeds, n_splits=n_splits, alpha=alpha,
+                       method_hp=method_hp)
+    existing = records_from_csv(csv_path) if os.path.exists(csv_path) else []
+    new_keys = {(r["backbone"], r["dataset"]) for r in new["records"]}
+    kept = [r for r in existing if (r["backbone"], r["dataset"]) not in new_keys]
+    write_csv(kept + new["records"], csv_path)        # Waterbirds rows kept; new cells appended/replaced
+    out = reanalyze(csv_path, md_path=md_path, figdir=figdir, excluded=new["excluded"])
+    out["new_excluded"] = new["excluded"]
+    return out
 
 
 def make_c1_figure(out: dict, outdir: str):

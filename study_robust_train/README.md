@@ -86,9 +86,11 @@ python -m pytest tests/test_celeba_parse.py tests/test_colab_data.py   # CelebA 
 # RECOVERABILITY (coverage-auditability tension, Colab GPU): notebooks/recoverability.ipynb
 #   reuse cached features -> Part A (AUROC vs worst-group cov + verdict) -> STOP; Part B only if
 #   any cell ambiguous/tension_alive -> RECOVERABILITY.md + tradeoff plot.
-# CALIBRATION ABLATION (Colab GPU): notebooks/calibration_ablation.ipynb
-#   re-calibrate cached posteriors over {marginal_split, mondrian, shift_robust} -> C1/C2/C3
-#   -> CALIBRATION_ABLATION.md + CSV + C1 figure -> STOP.
+# CALIBRATION ABLATION (Colab GPU): notebooks/calibration_ablation.ipynb (Waterbirds; Drive-backs
+#   results/study so the CSV persists) -> CALIBRATION_ABLATION.md + CSV + C1 figures -> STOP.
+#   EXTEND to CelebA (append, don't overwrite): notebooks/calibration_ablation_celeba.ipynb ->
+#   extend_ablation_to() merges CelebA rows into the CSV (Waterbirds kept), regenerates MD+figures.
+#   AFR excluded on CelebA by the §2 gate. Idempotent (re-running replaces just the CelebA rows).
 ```
 
 **H2/H3 reporting (post-Waterbirds-run hardening):** H3 is measured on **burden survival** — divergence

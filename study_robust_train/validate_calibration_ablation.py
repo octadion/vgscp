@@ -91,6 +91,29 @@ def main() -> int:
     _check("CSV has the calibration column", "calibration" in header)
     _check("MD + C1 figure written", os.path.getsize(md_p) > 0 and figs and os.path.getsize(figs[0]) > 0)
 
+    print("\n[7] extend_ablation_to appends a NEW (CelebA) cell WITHOUT overwriting Waterbirds")
+    from .calibration_ablation import extend_ablation_to, records_from_csv
+    n_wb_rows = len(records_from_csv(csv_p))
+    celeba = {("clip_vitb32", "celeba"): make_synthetic_griddata(
+                  backbone="clip_vitb32", dataset="celeba", n_pool=4500, seed=2)}
+    fig_dir = "results/study_synthetic/figures"
+    ext = extend_ablation_to(celeba, csv_path=csv_p, md_path=md_p, figdir=fig_dir,
+                             methods=METHODS, scores=SCORES, rho_sweep=rho_sweep, seeds=(0, 1, 2), n_splits=4)
+    merged = records_from_csv(csv_p)
+    keys = set((r["backbone"], r["dataset"]) for r in merged)
+    _check("merged CSV keeps Waterbirds AND adds CelebA",
+           ("clip_vitb32", "waterbirds") in keys and ("clip_vitb32", "celeba") in keys)
+    wb_after = sum(1 for r in merged if (r["backbone"], r["dataset"]) == ("clip_vitb32", "waterbirds"))
+    _check("Waterbirds rows preserved (not overwritten)", wb_after == n_wb_rows)
+    _check("regenerated MD has both Waterbirds and CelebA sections",
+           "clip_vitb32 / waterbirds" in open(md_p, encoding="utf-8").read()
+           and "clip_vitb32 / celeba" in open(md_p, encoding="utf-8").read())
+    _check("CelebA C1 figure emitted", os.path.exists(f"{fig_dir}/calib_C1_clip_vitb32_celeba.png"))
+    # idempotent: re-extending the same cell must NOT duplicate rows
+    extend_ablation_to(celeba, csv_path=csv_p, md_path=md_p, figdir=fig_dir,
+                       methods=METHODS, scores=SCORES, rho_sweep=rho_sweep, seeds=(0, 1, 2), n_splits=4)
+    _check("re-extend is idempotent (no duplicate rows)", len(records_from_csv(csv_p)) == len(merged))
+
     print("\n" + "=" * 78)
     print("CALIBRATION-ABLATION LOGIC OK -- C1/C2/C3 + emitters validated on synthetic.")
     print("NO REAL NUMBERS CLAIMED. Real run: notebooks/calibration_ablation.ipynb (Colab).")
