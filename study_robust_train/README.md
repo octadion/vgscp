@@ -56,9 +56,12 @@ floor* on the species head — a necessary-not-sufficient precondition, not the 
 | **`features.py`** | frozen backbones: CLIP ViT-B/32 (reused) + **ERM ResNet-50** train+extract (Colab-only) |
 | **`datasets.py`** | backbone-agnostic dataset→`GridData` adapter (Waterbirds + CelebA, no CUB coupling) |
 | **`figures.py`** | spec §8 figures: accuracy-matched burden, shift curves, H2 ranking scatter |
+| **`recoverability.py`** | coverage–auditability tension test: spurious-attr recoverability AUROC vs worst-group Mondrian coverage per cell (Part A) + project-out-top-k tradeoff sweep (Part B) |
+| **`colab_data.py`** | shared Colab dataset prep (Waterbirds wget; CelebA kaggle download + CSV→txt normalize via os.walk); used by both grid + recoverability notebooks |
 | `synthetic.py` | synthetic frozen-feature + GridData generators for LOCAL logic validation only |
 | `validate_synthetic.py` | Phase-0 machinery synthetic logic check; **claims no real numbers** |
-| **`validate_grid.py`** | full H1/H2/H3 grid synthetic logic check (5 methods, scores, ρ, matching, verdicts, emitters); **claims no real numbers** |
+| **`validate_grid.py`** | full H1/H2/H3 grid synthetic logic check; **claims no real numbers** |
+| **`validate_recoverability.py`** | recoverability Part A + Part B synthetic logic check; **claims no real numbers** |
 
 Backbone naming: `resnet50_erm` (primary, literature-comparable), `clip_vitb32` (secondary). The
 spec's "CLIP linear probe" baseline == (`erm` × `clip_vitb32`); the backbone axis covers it (no
@@ -69,7 +72,8 @@ redundant arm). The heavy full-GroupDRO fine-tune and 3rd/4th datasets are **not
 # LOCAL — logic validation on synthetic features (no torch/data; claims NO real numbers):
 python -m study_robust_train.validate_synthetic        # Phase-0 machinery (exit 0 on PASS)
 python -m study_robust_train.validate_grid             # full H1/H2/H3 grid chain (exit 0 on PASS)
-python -m pytest tests/test_celeba_parse.py            # CelebA metadata parser
+python -m study_robust_train.validate_recoverability   # coverage-auditability tension chain (exit 0)
+python -m pytest tests/test_celeba_parse.py tests/test_colab_data.py   # CelebA parser + Colab prep
 
 # REAL Phase-0 (Colab GPU): notebooks/phase0_robust_train.ipynb  (done — passed)
 # REAL grid   (Colab GPU): notebooks/grid_robust_train.ipynb
@@ -77,6 +81,9 @@ python -m pytest tests/test_celeba_parse.py            # CelebA metadata parser
 #   -> RESULTS_study.md (accuracy-matched H1 up front) + CSVs + figures -> STOP before heavy arms.
 # REANALYZE existing results (Tasks A/B, NO retraining): notebooks/reanalyze_results.ipynb, or
 #   python -c "from study_robust_train.grid import reanalyze; reanalyze('results/study/grid_records.csv')"
+# RECOVERABILITY (coverage-auditability tension, Colab GPU): notebooks/recoverability.ipynb
+#   reuse cached features -> Part A (AUROC vs worst-group cov + verdict) -> STOP; Part B only if
+#   any cell ambiguous/tension_alive -> RECOVERABILITY.md + tradeoff plot.
 ```
 
 **H2/H3 reporting (post-Waterbirds-run hardening):** H3 is measured on **burden survival** — divergence
