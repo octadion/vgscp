@@ -19,12 +19,15 @@ import numpy as np
 
 from conformal.split_conformal import conformal_quantile
 from conformal.scores import draw_randomization, scores_all, true_label_scores
+from conformal.group_robust import (mondrian_build_sets, mondrian_quantiles, robust_quantile,
+                                     score_tv_distance)
 from experiments.shift_resampler import resample_to_rho, split_pool
 
 from .divergence import cross_group_divergence
 
 RHO_CAL = 0.95
 RHO_SWEEP = (0.95, 0.90, 0.80, 0.70, 0.60, 0.50)
+CALIBRATIONS = ("marginal_split", "mondrian", "shift_robust")
 
 
 def _per_group(values: np.ndarray, group: np.ndarray) -> dict:
@@ -34,7 +37,7 @@ def _per_group(values: np.ndarray, group: np.ndarray) -> dict:
 def evaluate(probs: np.ndarray, y: np.ndarray, group: np.ndarray, *,
              score: str = "APS", alpha: float = 0.1, rho_test: float = 0.95,
              rho_cal: float = RHO_CAL, split_seed: int = 0, frac_cal: float = 0.5,
-             n_eval: int | None = None) -> dict:
+             n_eval: int | None = None, calibration: str = "marginal_split") -> dict:
     """One conformal evaluation record. ``probs`` are (N, C) posteriors over the eval-domain pool;
     ``group`` is the Waterbirds 4-group id (2*y_bin + spurious). Returns a flat dict."""
     probs = np.asarray(probs, dtype=np.float64)
@@ -52,18 +55,30 @@ def evaluate(probs: np.ndarray, y: np.ndarray, group: np.ndarray, *,
     cal_idx = cal_pool[cal_rs.idx]
     test_idx = test_pool[test_rs.idx]
 
-    # calibration quantile on cal true-label scores
+    # calibration on cal true-label scores (policy axis)
     u_cal = draw_randomization(cal_idx.size, seed=split_seed * 7 + 1)
     cal_scores_all = scores_all(score, probs[cal_idx], u=u_cal)
     cal_true = true_label_scores(cal_scores_all, y[cal_idx])
-    qhat = conformal_quantile(cal_true, alpha)
+    cal_group = group[cal_idx]
 
-    # test prediction sets
     u_test = draw_randomization(test_idx.size, seed=split_seed * 7 + 2)
     test_scores_all = scores_all(score, probs[test_idx], u=u_test)
-    membership = test_scores_all <= qhat
     y_test = y[test_idx]
     g_test = group[test_idx]
+
+    if calibration == "marginal_split":          # single global threshold, no group conditioning
+        qhat = conformal_quantile(cal_true, alpha)
+        membership = test_scores_all <= qhat
+    elif calibration == "mondrian":              # group-conditional thresholds (per-group quantile)
+        gq = mondrian_quantiles(cal_true, cal_group, alpha)
+        membership = mondrian_build_sets(test_scores_all, g_test, gq)
+    elif calibration == "shift_robust":          # TV-robust: inflate level by observed cal->test shift
+        test_true_tmp = true_label_scores(test_scores_all, y_test)
+        eps = score_tv_distance(cal_true, test_true_tmp)
+        qhat, _ = robust_quantile(cal_true, alpha, eps)
+        membership = test_scores_all <= qhat
+    else:
+        raise ValueError(f"unknown calibration {calibration!r}; choose from {CALIBRATIONS}")
 
     covered = membership[np.arange(test_idx.size), y_test].astype(np.float64)
     set_size = membership.sum(axis=1).astype(np.float64)
@@ -84,8 +99,8 @@ def evaluate(probs: np.ndarray, y: np.ndarray, group: np.ndarray, *,
     div = cross_group_divergence(test_true, g_test, worst_group=worst_g, score_name=score)
 
     return {
-        "score": score, "alpha": alpha, "rho_cal": rho_cal, "rho_test": rho_test,
-        "split_seed": split_seed, "n_eval": int(n_eval),
+        "score": score, "calibration": calibration, "alpha": alpha, "rho_cal": rho_cal,
+        "rho_test": rho_test, "split_seed": split_seed, "n_eval": int(n_eval),
         "rho_cal_realized": cal_rs.rho_realized, "rho_test_realized": test_rs.rho_realized,
         "marginal_cov": marg_cov, "worst_group": int(worst_g), "worst_group_cov": float(worst_cov),
         "cov_gap": cov_gap, "mean_set_size": mean_size, "worst_group_set_size": worst_g_size,
