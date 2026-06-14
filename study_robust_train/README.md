@@ -57,6 +57,7 @@ floor* on the species head — a necessary-not-sufficient precondition, not the 
 | **`datasets.py`** | backbone-agnostic dataset→`GridData` adapter (Waterbirds + CelebA, no CUB coupling) |
 | **`figures.py`** | spec §8 figures: accuracy-matched burden, shift curves, H2 ranking scatter |
 | **`calibration_ablation.py`** | calibration-policy ablation (marginal_split / mondrian / shift_robust) on cached posteriors: C1 (coverage is calibration not training), C2 (training buys efficiency), C3 (Mondrian shift validity) |
+| **`predicted_group_mondrian.py`** | Mondrian with PREDICTED groups (â from the recoverability probe): worst-group cov+size under (a) true / (b) pred-test / (c) pred-both + gap(a−c); the deployable-without-group-labels test |
 | **`recoverability.py`** | coverage–auditability tension test: spurious-attr recoverability AUROC vs worst-group Mondrian coverage per cell (Part A) + project-out-top-k tradeoff sweep (Part B) |
 | **`colab_data.py`** | shared Colab dataset prep (Waterbirds wget; CelebA kaggle download + CSV→txt normalize via os.walk); used by both grid + recoverability notebooks |
 | `synthetic.py` | synthetic frozen-feature + GridData generators for LOCAL logic validation only |
@@ -75,6 +76,7 @@ python -m study_robust_train.validate_synthetic        # Phase-0 machinery (exit
 python -m study_robust_train.validate_grid             # full H1/H2/H3 grid chain (exit 0 on PASS)
 python -m study_robust_train.validate_recoverability   # coverage-auditability tension chain (exit 0)
 python -m study_robust_train.validate_calibration_ablation  # calibration C1/C2/C3 chain (exit 0)
+python -m study_robust_train.validate_predicted_group_mondrian  # predicted-group Mondrian (exit 0)
 python -m pytest tests/test_celeba_parse.py tests/test_colab_data.py   # CelebA parser + Colab prep
 
 # REAL Phase-0 (Colab GPU): notebooks/phase0_robust_train.ipynb  (done — passed)
@@ -91,6 +93,9 @@ python -m pytest tests/test_celeba_parse.py tests/test_colab_data.py   # CelebA 
 #   EXTEND to CelebA (append, don't overwrite): notebooks/calibration_ablation_celeba.ipynb ->
 #   extend_ablation_to() merges CelebA rows into the CSV (Waterbirds kept), regenerates MD+figures.
 #   AFR excluded on CelebA by the §2 gate. Idempotent (re-running replaces just the CelebA rows).
+# PREDICTED-GROUP MONDRIAN (Colab GPU): notebooks/predicted_group_mondrian.ipynb
+#   predict â from the recoverability probe -> Mondrian (a) true / (b) pred-test / (c) pred-both,
+#   coverage scored on TRUE groups -> PREDICTED_GROUP_MONDRIAN.md + CSV (gap a−c) -> STOP.
 ```
 
 **H2/H3 reporting (post-Waterbirds-run hardening):** H3 is measured on **burden survival** — divergence
