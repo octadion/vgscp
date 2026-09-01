@@ -88,6 +88,14 @@ def evaluate(probs: np.ndarray, y: np.ndarray, group: np.ndarray, *,
     worst_g = min(cov_by_g, key=lambda g: (cov_by_g[g], g))   # lowest-coverage group = burden worst
     worst_cov = cov_by_g[worst_g]
     marg_cov = float(covered.mean())
+    # Mean over GROUPS (unweighted), the quantity Mondrian actually targets: each group is valid in
+    # expectation, so this should sit at 1-alpha even when the *minimum* over groups does not.
+    # Reported alongside worst_group_cov so the sub-target minimum can be read as the min-over-k
+    # selection effect it is (ACML R1.1 / R3), not as a validity failure. n_cal_worst_group is the
+    # worst group's calibration count, which sets the size of that effect.
+    mean_group_cov = float(np.mean(list(cov_by_g.values())))
+    cov_range = float(max(cov_by_g.values()) - min(cov_by_g.values()))
+    n_cal_worst_group = int((cal_group == worst_g).sum())
     cov_gap = float((1.0 - alpha) - worst_cov)                # >0 => worst group under-covered
     mean_size = float(set_size.mean())
     worst_g_size = float(size_by_g[worst_g])
@@ -103,6 +111,8 @@ def evaluate(probs: np.ndarray, y: np.ndarray, group: np.ndarray, *,
         "rho_test": rho_test, "split_seed": split_seed, "n_eval": int(n_eval),
         "rho_cal_realized": cal_rs.rho_realized, "rho_test_realized": test_rs.rho_realized,
         "marginal_cov": marg_cov, "worst_group": int(worst_g), "worst_group_cov": float(worst_cov),
+        "mean_group_cov": mean_group_cov, "cov_range": cov_range,
+        "n_cal_worst_group": n_cal_worst_group,
         "cov_gap": cov_gap, "mean_set_size": mean_size, "worst_group_set_size": worst_g_size,
         "set_size_disparity": size_disparity, "base_top1": base_top1,
         "div_wasserstein1": div.wasserstein1, "div_ks_stat": div.ks_stat,

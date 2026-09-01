@@ -1,0 +1,231 @@
+@inproceedings{
+angelopoulos2020,
+title={Uncertainty Sets for Image Classifiers using Conformal Prediction},
+author={Anastasios Nikolas Angelopoulos and Stephen Bates and Michael Jordan and Jitendra Malik},
+booktitle={International Conference on Learning Representations},
+year={2021}
+}
+
+@inproceedings{
+cresswell2024,
+title={Conformal Prediction Sets Can Cause Disparate Impact},
+author={Jesse C. Cresswell and Bhargava Kumar and Yi Sui and Mouloud Belbahri},
+booktitle={The Thirteenth International Conference on Learning Representations},
+year={2025}
+}
+
+@inproceedings{deng2025kandinsky,
+title={Kandinsky Conformal Prediction: Beyond Class- and Covariate-Conditional Coverage},
+author={Konstantina Bairaktari and Jiayun Wu and Steven Wu},
+booktitle={Forty-second International Conference on Machine Learning},
+year={2025}
+}
+
+@inproceedings{afcp2024,
+title={Conformal Classification with Equalized Coverage for Adaptively Selected Groups},
+author={Yanfei Zhou and Matteo Sesia},
+booktitle={The Thirty-eighth Annual Conference on Neural Information Processing Systems},
+year={2024}
+}
+
+@misc{gibbs2023,
+      title={Conformal Prediction With Conditional Guarantees}, 
+      author={Isaac Gibbs and John J. Cherian and Emmanuel J. Candès},
+      year={2024},
+      eprint={2305.12616},
+      archivePrefix={arXiv},
+      primaryClass={stat.ME}
+}
+
+@inproceedings{evidential2025, series={KDD ’25},
+   title={Improving Group Robustness on Spurious Correlation via Evidential Alignment},
+   booktitle={Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.2},
+   publisher={ACM},
+   author={Ye, Wenqian and Zheng, Guangtao and Zhang, Aidong},
+   year={2025},
+   month=Aug, pages={3610–3621},
+   collection={KDD ’25} }
+
+
+@inproceedings{jones2021,
+title={Selective Classification Can Magnify Disparities Across Groups},
+author={Erik Jones and Shiori Sagawa and Pang Wei Koh and Ananya Kumar and Percy Liang},
+booktitle={''I Can't Believe It's Not Better!'' NeurIPS 2020 workshop},
+year={2020}
+}
+
+@inproceedings{jung2023,
+title={Batch Multivalid Conformal Prediction},
+author={Christopher Jung and Georgy Noarov and Ramya Ramalingam and Aaron Roth},
+booktitle={International Conference on Learning Representations},
+year={2023}
+}
+
+@inproceedings{kirichenko2023,
+title={Last Layer Re-Training is Sufficient for Robustness to Spurious Correlations},
+author={Polina Kirichenko and Pavel Izmailov and Andrew Gordon Wilson},
+booktitle={The Eleventh International Conference on Learning Representations },
+year={2023}
+}
+
+@inproceedings{liu2021jtt,
+  title = 	 {Just Train Twice: Improving Group Robustness without Training Group Information},
+  author =       {Liu, Evan Z and Haghgoo, Behzad and Chen, Annie S and Raghunathan, Aditi and Koh, Pang Wei and Sagawa, Shiori and Liang, Percy and Finn, Chelsea},
+  booktitle = 	 {Proceedings of the 38th International Conference on Machine Learning},
+  pages = 	 {6781--6792},
+  year = 	 {2021},
+  editor = 	 {Meila, Marina and Zhang, Tong},
+  volume = 	 {139},
+  series = 	 {Proceedings of Machine Learning Research},
+  month = 	 {18--24 Jul},
+  publisher =    {PMLR},
+  pdf = 	 {http://proceedings.mlr.press/v139/liu21f/liu21f.pdf},
+  abstract = 	 {Standard training via empirical risk minimization (ERM) can produce models that achieve low error on average but high error on minority groups, especially in the presence of spurious correlations between the input and label. Prior approaches to this problem, like group distributionally robust optimization (group DRO), generally require group annotations for every training point. On the other hand, approaches that do not use group annotations generally do not improve minority performance. For example, we find that joint DRO, which dynamically upweights examples with high training loss, tends to optimize for examples that are irrelevant to the specific groups we seek to do well on. In this paper, we propose a simple two-stage approach, JTT, that achieves comparable performance to group DRO while only requiring group annotations on a significantly smaller validation set. JTT first attempts to identify informative training examples, which are often minority examples, by training an initial ERM classifier and selecting the examples with high training loss. Then, it trains a final classifier by upsampling the selected examples. Crucially, unlike joint DRO, JTT does not iteratively upsample examples that have high loss under the final classifier. On four image classification and natural language processing tasks with spurious correlations, we show that JTT closes 85% of the gap in accuracy on the worst group between ERM and group DRO.}
+}
+
+
+@misc{mdcp2026,
+      title={Multi-Distribution Robust Conformal Prediction}, 
+      author={Yuqi Yang and Ying Jin},
+      year={2026},
+      eprint={2601.02998},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
+}
+
+@misc{burden2026,
+      title={On the Burden of Achieving Fairness in Conformal Prediction}, 
+      author={Ziang Gao and Pengqi Liu and Archer Yi Yang and Mouloud Belbahri and Jesse C. Cresswell and Masoud Asgharian},
+      year={2026},
+      eprint={2605.14260},
+      archivePrefix={arXiv},
+      primaryClass={stat.ML}
+}
+
+@misc{conceptconf2025,
+      title={Uncertainty-Aware Concept Bottleneck Models with Enhanced Interpretability}, 
+      author={Haifei Zhang and Patrick Barry and Eduardo Brandao},
+      year={2025},
+      eprint={2510.00773},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
+}
+
+@inproceedings{qiu2023,
+  title = 	 {Simple and Fast Group Robustness by Automatic Feature Reweighting},
+  author =       {Qiu, Shikai and Potapczynski, Andres and Izmailov, Pavel and Wilson, Andrew Gordon},
+  booktitle = 	 {Proceedings of the 40th International Conference on Machine Learning},
+  pages = 	 {28448--28467},
+  year = 	 {2023},
+  editor = 	 {Krause, Andreas and Brunskill, Emma and Cho, Kyunghyun and Engelhardt, Barbara and Sabato, Sivan and Scarlett, Jonathan},
+  volume = 	 {202},
+  series = 	 {Proceedings of Machine Learning Research},
+  month = 	 {23--29 Jul},
+  publisher =    {PMLR},
+  pdf = 	 {https://proceedings.mlr.press/v202/qiu23c/qiu23c.pdf},
+  abstract = 	 {A major challenge to out-of-distribution generalization is reliance on spurious features — patterns that are predictive of the class label in the training data distribution, but not causally related to the target. Standard methods for reducing the reliance on spurious features typically assume that we know what the spurious feature is, which is rarely true in the real world. Methods that attempt to alleviate this limitation are complex, hard to tune, and lead to a significant computational overhead compared to standard training. In this paper, we propose Automatic Feature Reweighting (AFR), an extremely simple and fast method for updating the model to reduce the reliance on spurious features. AFR retrains the last layer of a standard ERM-trained base model with a weighted loss that emphasizes the examples where the ERM model predicts poorly, automatically upweighting the minority group without group labels. With this simple procedure, we improve upon the best reported results among competing methods trained without spurious attributes on several vision and natural language classification benchmarks, using only a fraction of their compute.}
+}
+
+
+@inproceedings{romano2020,
+author = {Romano, Yaniv and Sesia, Matteo and Cand\`{e}s, Emmanuel J.},
+title = {Classification with valid and adaptive coverage},
+year = {2020},
+isbn = {9781713829546},
+publisher = {Curran Associates Inc.},
+address = {Red Hook, NY, USA},
+abstract = {Conformal inference, cross-validation+, and the jackknife+ are hold-out methods that can be combined with virtually any machine learning algorithm to construct prediction sets with guaranteed marginal coverage. In this paper, we develop specialized versions of these techniques for categorical and unordered response labels that, in addition to providing marginal coverage, are also fully adaptive to complex data distributions, in the sense that they perform favorably in terms of approximate conditional coverage compared to alternative methods. The heart of our contribution is a novel conformity score, which we explicitly demonstrate to be powerful and intuitive for classification problems, but whose underlying principle is potentially far more general. Experiments on synthetic and real data demonstrate the practical value of our theoretical guarantees, as well as the statistical advantages of the proposed methods over the existing alternatives.},
+booktitle = {Proceedings of the 34th International Conference on Neural Information Processing Systems},
+articleno = {302},
+numpages = {11},
+location = {Vancouver, BC, Canada},
+series = {NIPS '20}
+}
+
+@inproceedings{sagawa2020,
+title={Distributionally Robust Neural Networks},
+author={Shiori Sagawa* and Pang Wei Koh* and Tatsunori B. Hashimoto and Percy Liang},
+booktitle={International Conference on Learning Representations},
+year={2020}
+}
+
+@inbook{tibshirani2019,
+author = {Tibshirani, Ryan J. and Barber, Rina Foygel and Cand\`{e}s, Emmanuel J. and Ramdas, Aaditya},
+title = {Conformal prediction under covariate shift},
+year = {2019},
+publisher = {Curran Associates Inc.},
+address = {Red Hook, NY, USA},
+abstract = {We extend conformal prediction methodology beyond the case of exchangeable data. In particular, we show that a weighted version of conformal prediction can be used to compute distribution-free prediction intervals for problems in which the test and training covariate distributions differ, but the likelihood ratio between the two distributions is known—or, in practice, can be estimated accurately from a set of unlabeled data (test covariate points). Our weighted extension of conformal prediction also applies more broadly, to settings in which the data satisfies a certain weighted notion of exchangeability. We discuss other potential applications of our new conformal methodology, including latent variable and missing data problems.},
+booktitle = {Proceedings of the 33rd International Conference on Neural Information Processing Systems},
+articleno = {227},
+numpages = {11}
+}
+
+@book{vovk2005,
+  author = {Vovk, Vladimir and Gammerman, Alexander and Shafer, Glenn},
+  title = {Algorithmic Learning in a Random World},
+  publisher = {Springer},
+  year = {2005}
+}
+
+@inproceedings{yang2023change,
+author = {Yang, Yuzhe and Zhang, Haoran and Katabi, Dina and Ghassemi, Marzyeh},
+title = {Change is hard: a closer look at subpopulation shift},
+year = {2023},
+publisher = {JMLR.org},
+abstract = {Machine learning models often perform poorly on subgroups that are underrepresented in the training data. Yet, little is understood on the variation in mechanisms that cause subpopulation shifts, and how algorithms generalize across such diverse shifts at scale. In this work, we provide a fine-grained analysis of subpopulation shift. We first propose a unified framework that dissects and explains common shifts in subgroups. We then establish a comprehensive benchmark of 20 state-of-the-art algorithms evaluated on 12 real-world datasets in vision, language, and healthcare domains. With results obtained from training over 10,000 models, we reveal intriguing observations for future progress in this space. First, existing algorithms only improve subgroup robustness over certain types of shifts but not others. Moreover, while current algorithms rely on group-annotated validation data for model selection, we find that a simple selection criterion based on worst-class accuracy is surprisingly effective even without any group information. Finally, unlike existing works that solely aim to improve worst-group accuracy (WGA), we demonstrate the fundamental tradeoff between WGA and other important metrics, highlighting the need to carefully choose testing metrics. Code and data are available at: https://github.com/YyzHarry/SubpopBench.},
+booktitle = {Proceedings of the 40th International Conference on Machine Learning},
+articleno = {1652},
+numpages = {39},
+location = {Honolulu, Hawaii, USA},
+series = {ICML'23}
+}
+
+@inproceedings{zhang2022cnc,
+  author = {Zhang, Michael and Sohoni, Nimit S. and Zhang, Hongyang R. and Finn, Chelsea and R\'e, Christopher},
+  title = {Correct-n-contrast: a contrastive approach for improving robustness to spurious correlations},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year = {2022}
+}
+
+@article{barber2021limits,
+  title={The limits of distribution-free conditional predictive inference},
+  author={Rina Foygel Barber and Emmanuel J. Cand{\`e}s and Aaditya Ramdas and Ryan J. Tibshirani},
+  journal={Information and Inference: A Journal of the IMA},
+  year={2019}
+}
+
+@article{einbinder2022,
+  author  = {Bat-Sheva Einbinder and Shai Feldman and Stephen Bates and Anastasios N. Angelopoulos and Asaf Gendler and Yaniv Romano},
+  title   = {Label Noise Robustness of Conformal Prediction},
+  journal = {Journal of Machine Learning Research},
+  year    = {2024},
+  volume  = {25},
+  number  = {328},
+  pages   = {1--66},
+}
+
+@misc{sesia2023noisy,
+      title={Adaptive conformal classification with noisy labels}, 
+      author={Matteo Sesia and Y. X. Rachel Wang and Xin Tong},
+      year={2024},
+      eprint={2309.05092},
+      archivePrefix={arXiv},
+      primaryClass={stat.ME} 
+}
+
+@article{ncb2024,
+        title={Neural Concept Binder},
+        author={Stammer, Wolfgang and W{\"u}st, Antonia and Steinmann, David and Kersting, Kristian},
+        journal={Advances in Neural Information Processing Systems (NeurIPS)},
+        year={2024}
+      }
+
+@misc{ncv2025,
+      title={Neural Concept Verifier: Scaling Prover-Verifier Games via Concept Encodings}, 
+      author={Berkant Turan and Suhrab Asadulla and David Steinmann and Kristian Kersting and Wolfgang Stammer and Sebastian Pokutta},
+      year={2026},
+      eprint={2507.07532},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
+}

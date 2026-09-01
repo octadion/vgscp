@@ -1,0 +1,1034 @@
+\documentclass[pdflatex,sn-basic]{sn-jnl}% Basic Springer Nature 
+\usepackage{graphicx}%
+\usepackage{multirow}%
+\usepackage{amsmath,amssymb,amsfonts}%
+\usepackage{amsthm}%
+\usepackage[title]{appendix}%
+\usepackage{booktabs}%
+\usepackage{tikz}%
+\usetikzlibrary{calc,positioning,arrows.meta}%
+\theoremstyle{thmstyleone}%
+\newtheorem{theorem}{Theorem}%
+\newtheorem{proposition}[theorem]{Proposition}%
+\newtheorem{hypothesis}{Hypothesis}%
+\newcommand{\wg}{\mathrm{wg}}
+\newcommand{\cov}{\mathrm{cov}}
+\newcommand{\covgap}{\Delta_{\cov}}
+\newcommand{\auroc}{\mathrm{AUROC}}
+\newcommand{\Wone}{W_1}
+\newcommand{\rhocal}{\rho_{\mathrm{cal}}}
+\newcommand{\rhotest}{\rho_{\mathrm{test}}}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\raggedbottom
+\begin{document}
+\title[Worst-Group Conformal Reliability Is a Calibration Problem]{Worst-Group Conformal Reliability under Spurious Correlation Is a Calibration Problem, Not a Representation Problem: A Confound-Controlled Multi-Backbone Study}
+
+\author*[1]{\fnm{One} \sur{Octadion}}\email{octadion@student.ub.ac.id}
+
+\author[1]{\fnm{Novanto} \sur{Yudistira}}\email{yudistira@ub.ac.id}
+
+\author[2]{\fnm{Yuta} \sur{Nakashima}}\email{n-yuta@im.sanken.osaka-u.ac.jp}
+
+\affil*[1]{\orgname{Universitas Brawijaya}, \orgaddress{\city{Malang}, \country{Indonesia}}}
+
+\affil[2]{\orgdiv{SANKEN}, \orgname{The University of Osaka}, \orgaddress{\city{Osaka}, \country{Japan}}}
+\abstract{%
+Group-robust training methods are certified almost exclusively by worst-group
+\emph{accuracy}, while a parallel line of conformal-prediction theory shows that
+post-hoc calibration can only \emph{relocate}, never remove, cross-group
+heterogeneity in conformity scores. This invites a natural but untested
+intuition: that representations made robust on the accuracy side should
+\emph{also} carry the conformal (coverage and set-size) reliability of the worst
+group. We test this intuition with a deliberately confound-controlled protocol
+across two benchmarks (Waterbirds, CelebA), two frozen backbones (an ERM-trained
+ResNet-50 and CLIP ViT-B/32), five last-layer training interventions (ERM, DFR,
+AFR, balanced subsampling, last-layer GroupDRO), three nonconformity scores (APS,
+RAPS, THR), three calibration policies (marginal split, Mondrian
+group-conditional, shift-robust), and a calibration-to-test correlation-strength
+sweep. Our central result is a clean dissociation that holds across every cell of this
+grid---both datasets, both backbones. \emph{Worst-group coverage is a property of
+the calibration mechanism, not of the representation}: under marginal calibration, worst-group coverage swings by up to $0.36$ across training methods
+(ERM collapses to $0.51$); under Mondrian calibration it is essentially flat
+across all training methods in every cell (cross-training spread
+$\le 0.024$), and the \emph{same} ERM model is lifted from $0.51$--$0.82$ to
+$0.85$--$0.89$ purely by changing the calibration policy. Training, in turn, buys
+\emph{efficiency}, not coverage: under Mondrian the worst-group set size tracks
+base accuracy in three of four cells (correlation $-0.85$ to $-1.00$). The
+remaining findings reinforce the dissociation: robust training's apparent
+reduction of cross-group conformity-score divergence is largely an accuracy effect
+that, once matched, is modest or unmeasurable; the accuracy-best training method
+is almost always the burden-best (the inversion is rare and marginal); under
+correlation-strength shift worst-group coverage is stable but persistently
+sub-target; and the spurious attribute remains almost perfectly recoverable from
+the deployed representation ($\auroc\in[0.95,0.99]$), so there is no
+coverage--auditability tension and group-conditional calibration is deployable with
+\emph{predicted} groups (within $0.02$ of the ground-truth oracle for robust
+models), needing no observed group labels at test time. The practical message is corrective and
+actionable: report conformal-burden comparisons at matched accuracy (uncontrolled
+comparisons overstate the training-side benefit by an order of magnitude), and
+rely on group-conditional calibration---which delivers worst-group coverage from
+ordinary, fully auditable representations.
+}
+\keywords{conformal prediction, spurious correlation, group robustness, worst-group coverage, group-conditional calibration}
+\maketitle
+
+\section{Introduction}
+\label{sec:intro}
+
+Conformal prediction \citep{vovk2005,angelopoulos2020,romano2020} turns a point
+predictor into set-valued predictions with a distribution-free marginal coverage
+guarantee under exchangeability. Under a \emph{spurious correlation}---a
+background, demographic, or context feature that co-varies with the label in
+training but not at deployment---marginal guarantees mask severe \emph{worst-group}
+unreliability: the minority group whose spurious feature is mismatched is
+systematically under-covered or receives uninformatively large sets
+\citep{cresswell2024}. Two largely separate programs respond. The first improves
+\emph{training} so the worst group is accurate: GroupDRO \citep{sagawa2020}, Deep
+Feature Reweighting (DFR) \citep{kirichenko2023}, AFR (automatic feature reweighting) \citep{qiu2023}, JTT
+\citep{liu2021jtt}, CNC \citep{zhang2022cnc}, evaluated almost entirely on
+worst-group accuracy and calibration error \citep{yang2023change}. The second
+improves \emph{calibration}: Mondrian and group-conditional conformal prediction
+\citep{vovk2005,jung2023,gibbs2023}, Kandinsky calibration for overlapping and
+fractional groups \citep{deng2025kandinsky}, multi-distribution robust conformal
+prediction \citep{mdcp2026}, adaptive fairness-aware conformal prediction
+\citep{afcp2024}. A recent impossibility result formalizes the link: the
+calibration policy determines only \emph{whether} cross-group score heterogeneity
+surfaces as coverage disparity or as set-size disparity, never whether it appears
+at all \citep{burden2026}.
+
+These two programs meet at a widespread but rarely tested intuition: if the worst
+group can be made \emph{accurate} by changing the representation, perhaps the same
+change makes it \emph{conformally reliable}, so robust training should pay off for
+downstream uncertainty quantification. A confound-controlled grid instead returns a
+clean \emph{dissociation} (Figure~\ref{fig:overview})---the more useful result for a literature that tends to
+credit training-side robustness with conformal benefits it does not separately
+provide.
+
+Our contributions are:
+\begin{enumerate}
+\item \textbf{Coverage is a calibration property, demonstrated
+(Section~\ref{sec:c1}).} Holding the model and representation fixed and varying
+only the calibration policy, worst-group coverage swings by up to $0.36$ across
+training methods under marginal calibration but collapses to a spread of
+$\le 0.024$ under Mondrian in \emph{every} dataset$\times$backbone cell; the same
+ERM model is lifted by $+0.06$ to $+0.35$ purely by switching to group-conditional
+calibration. The representation does not deliver worst-group coverage; the
+calibration mechanism does.
+
+\item \textbf{Training buys efficiency, not coverage
+(Section~\ref{sec:c2}).} Under Mondrian (coverage matched across methods), the
+worst-group set size tracks base accuracy in three of four cells
+($\mathrm{corr}\in[-1.00,-0.85]$); training/accuracy improves \emph{efficiency},
+not coverage.
+
+\item \textbf{A confound-controlled protocol, and ``transfer'' as an accuracy
+effect (Section~\ref{sec:h1}).} We report a cross-group conformity-score
+divergence \emph{matched on base accuracy}; uncontrolled comparisons overstate the
+conformal benefit of robust training by an order of magnitude, and once matched
+the residual is modest (Waterbirds) or structurally undefined (CelebA, where
+robust arms raise accuracy beyond ERM).
+
+\item \textbf{Accuracy is a good proxy for conformal burden
+(Section~\ref{sec:h2}).} The ranking inversion between worst-group accuracy and
+worst-group conformal burden appears in only 2 of 4 cells and is marginal where it
+appears.
+
+\item \textbf{Stable but sub-target under shift; auditable and deployable
+(Sections~\ref{sec:h3}--\ref{sec:predgroup}).} Under correlation-strength shift,
+worst-group coverage is stable yet persistently sub-target; the spurious
+attribute is almost perfectly recoverable from the deployed representation
+($\auroc\in[0.95,0.99]$), so worst-group coverage and post-hoc group auditing
+coexist; and because the group is recoverable, group-conditional calibration is
+deployable with probe-predicted groups---worst-group coverage within $0.02$ of the
+ground-truth-group oracle for $16$ of $18$ method$\times$cell combinations---so it
+does not require observed group labels at test time.
+\end{enumerate}
+
+The unifying thesis (Section~\ref{sec:discussion}) is that, under spurious
+correlation, worst-group conformal reliability is governed by the calibration
+\emph{mechanism}, not by the score \emph{representation}. We frame the paper as a
+characterization rather than a method.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\footnotesize,>=Latex]
+  \node[draw,rounded corners,minimum width=23mm,minimum height=12mm,align=center,fill=gray!8] (bb) at (0,0) {Frozen backbone\\{\scriptsize fixed representation}};
+  \node[draw,rounded corners,minimum width=24mm,minimum height=12mm,align=center,fill=gray!8] (arms) at (3.6,0) {5 last-layer\\training arms};
+  \draw[->,thick] (bb) -- (arms);
+  \node[below=0.5mm of arms,align=center,font=\scriptsize] {\,ERM, DFR, AFR,\\Bal., GroupDRO};
+  \node[draw,rounded corners,fill=blue!10] (marg) at (7.0,1.5) {Marginal calibration};
+  \node[draw,rounded corners,fill=orange!15] (mond) at (7.0,-1.5) {Mondrian calibration};
+  \draw[->,thick] (arms.east) to[out=25,in=180] (marg.west);
+  \draw[->,thick] (arms.east) to[out=-25,in=180] (mond.west);
+  \begin{scope}[shift={(9.0,0.85)}]
+    \draw[->] (0,0) -- (2.9,0); \draw[->] (0,0) -- (0,1.7);
+    \draw[dashed,gray] (0,1.35) -- (2.7,1.35); \node[right,font=\scriptsize,gray] at (2.7,1.35) {.90};
+    \node[rotate=90,font=\scriptsize] at (-0.32,0.8) {wg cov};
+    \fill[blue!70] (0.4,0.30) circle (1.4pt); \fill[blue!70] (0.95,1.15) circle (1.4pt);
+    \fill[blue!70] (1.5,0.80) circle (1.4pt); \fill[blue!70] (2.05,1.25) circle (1.4pt);
+    \fill[blue!70] (2.6,0.95) circle (1.4pt);
+    \node[font=\scriptsize,align=center,text=blue!60!black] at (1.45,-0.42) {\textbf{varies with training}};
+  \end{scope}
+  \begin{scope}[shift={(9.0,-2.15)}]
+    \draw[->] (0,0) -- (2.9,0); \draw[->] (0,0) -- (0,1.7);
+    \draw[dashed,gray] (0,1.35) -- (2.7,1.35); \node[right,font=\scriptsize,gray] at (2.7,1.35) {.90};
+    \node[rotate=90,font=\scriptsize] at (-0.32,0.8) {wg cov};
+    \fill[orange!85!black] (0.4,1.18) circle (1.4pt); \fill[orange!85!black] (0.95,1.24) circle (1.4pt);
+    \fill[orange!85!black] (1.5,1.20) circle (1.4pt); \fill[orange!85!black] (2.05,1.27) circle (1.4pt);
+    \fill[orange!85!black] (2.6,1.19) circle (1.4pt);
+    \node[font=\scriptsize,align=center,text=orange!55!black] at (1.45,-0.42) {\textbf{flat across training}};
+  \end{scope}
+\end{tikzpicture}
+\caption{Overview of the dissociation. The representation---a frozen backbone with
+five last-layer training arms---is held fixed; only the calibration policy changes.
+Under \emph{marginal} calibration, worst-group coverage varies sharply with the
+training method and ERM collapses; under \emph{Mondrian} (group-conditional)
+calibration it is flat across training methods and near target. Worst-group coverage
+is a property of the calibration mechanism, not of the representation.}
+\label{fig:overview}
+\end{figure}
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Group-robust training.} Worst-group accuracy is improved by
+distributionally robust optimization \citep{sagawa2020}, last-layer retraining on
+group-balanced data (DFR) \citep{kirichenko2023}, automatic feature reweighting
+(AFR) \citep{qiu2023}, and pseudo-group methods such as JTT \citep{liu2021jtt} and
+CNC \citep{zhang2022cnc}. The standard subpopulation-shift benchmark
+\citep{yang2023change} compares these on accuracy-family metrics and calibration
+error but reports no set-valued or coverage quantities. Our last-layer arms are
+drawn from this zoo so that our worst-group accuracies are comparable to published
+values; our object of study is what these interventions do to the \emph{conformal}
+side, which this literature does not measure.
+
+\paragraph{Group-conditional and fair conformal prediction.} Mondrian conformal
+prediction \citep{vovk2005} computes group-conditional thresholds; conditional
+guarantees beyond disjoint groups are given by \citet{gibbs2023} and
+\citet{jung2023}, and \citet{deng2025kandinsky} extend group-conditional coverage
+to overlapping and fractional memberships. On fairness, \citet{cresswell2024} show
+that equalizing coverage can increase disparate impact and recommend equalizing
+set sizes; \citet{afcp2024} adaptively equalize coverage while controlling
+efficiency; and \citet{burden2026} prove that equalized coverage and equalized set
+size cannot in general hold simultaneously, recasting the calibration policy as a
+choice of \emph{where} cross-group heterogeneity manifests. Our work is the
+empirical complement on the axis these papers hold fixed: we vary the
+\emph{training} intervention (hence representation and score distribution) and ask
+whether the conserved heterogeneity shrinks at the source. It does not; the
+calibration policy remains decisive.
+
+\paragraph{Conformal prediction under shift and for robust models.}
+\citet{tibshirani2019} establish validity under covariate shift via likelihood
+reweighting; multi-distribution robust conformal prediction \citep{mdcp2026}
+targets uniform worst-case coverage as a group-DRO analogue \emph{inside the
+calibration procedure}, holding the model fixed---consistent with our finding that
+the calibration mechanism is the operative lever. No prior work crosses the
+training-intervention zoo with calibration policies under a correlation-strength
+sweep, nor controls for the accuracy confound we isolate.
+
+\paragraph{Uncertainty, concepts, and the opposite direction.} Some recent work
+uses uncertainty to \emph{improve} group robustness---e.g.\ evidential alignment
+that mitigates spurious bias without group labels \citep{evidential2025}---the
+reverse of our direction. We treat conformal prediction over learned concept or
+concept-bottleneck spaces \citep{conceptconf2025,ncb2024,ncv2025} as an
+interpretability layer, orthogonal to our thesis. Selective classification under
+group shift \citep{jones2021} found abstention can leave worst-group accuracy flat;
+our set-valued analyses extend this lineage to conformal prediction.
+
+\paragraph{Group recovery, conditional coverage, and its limits.} Whether the
+protected group can be recovered is a separate question: biased ERM representations
+encode the spurious attribute strongly (the principle behind JTT and CNC), which
+our probe confirms ($\auroc\in[0.95,0.99]$). This connects to conformal prediction
+under noisy class or group labels \citep{einbinder2022,sesia2023noisy}, which
+corrects coverage but assumes the group is given; here the group is not noisy but
+\emph{recoverable}, which removes the auditability barrier and, via predicted
+groups, the deployment barrier (Section~\ref{sec:predgroup}). Finally, exact
+feature-conditional coverage is
+impossible distribution-free in finite samples \citep{barber2021limits}, which is
+why group-\emph{conditional} (Mondrian) coverage is the operative target; online
+and multivalid variants \citep{gibbs2023,jung2023} tighten it, but our contribution
+holds the calibration family fixed and varies the training intervention to show the
+representation does not substitute for the mechanism.
+
+\section{Problem Setup and Notation}
+\label{sec:setup}
+
+We observe triples $(x,y,a)$ with image $x$, label $y\in\mathcal{Y}$, and binary
+spurious attribute $a\in\{0,1\}$ (background/\emph{place} for Waterbirds;
+\emph{Male} for CelebA). Groups are $g=(y,a)\in\mathcal{G}$,
+$|\mathcal{G}|=2|\mathcal{Y}|$. A frozen backbone $\phi$ maps $x$ to features
+$\phi(x)\in\mathbb{R}^d$; a last-layer head $f_\theta$ trained by intervention $m$
+maps $\phi(x)$ to class scores. The \emph{correlation strength} $\rho$ is the
+evaluation probability that $a$ aligns with $y$ in the majority pattern; we
+calibrate at $\rhocal=0.95$ and evaluate over
+$\rhotest\in\{0.95,0.9,0.8,0.7,0.6,0.5\}$, holding the calibration distribution
+fixed.
+
+\paragraph{Conformal sets and calibration policies.} Given a nonconformity score
+$s(x,y)$ and a calibration set $\mathcal{D}_{\mathrm{cal}}$, split conformal
+prediction computes
+$\hat q=\mathrm{Quantile}_{1-\alpha}\big(\{s(x_i,y_i)\}_{i\in\mathcal{D}_{\mathrm{cal}}}\big)$
+and returns $C(x)=\{y\in\mathcal{Y}: s(x,y)\le\hat q\}$. We use three scores: THR
+($s_{\mathrm{THR}}(x,y)=1-\hat p(y\mid x)$); APS \citep{romano2020}, the cumulative
+softmax mass up to $y$; and RAPS \citep{angelopoulos2020}, APS with a tail
+regularizer. We compare three \emph{calibration policies}: \textbf{marginal split}
+(one global $\hat q$); \textbf{Mondrian} (a separate $\hat q_g$ per group); and
+\textbf{shift-robust} (a reweighted/worst-case threshold over a total-variation ball around the
+calibration distribution; Appendix~\ref{app:shiftrobust}). Target $1-\alpha=0.90$
+throughout; the full configuration is in Appendix~\ref{app:hyper}.
+
+\paragraph{Reliability quantities.} For group $g$, $\cov_g=\Pr[y\in C(x)\mid g]$
+and $|C|_g$ is its mean set size. We report worst-group coverage $\min_g\cov_g$,
+the \emph{coverage gap}
+\begin{equation}
+\covgap=\max_g\cov_g-\min_g\cov_g,
+\label{eq:covgap}
+\end{equation}
+mean set size, and set-size disparity $\max_g|C|_g-\min_g|C|_g$.
+
+\paragraph{Cross-group conformity-score divergence (the ``burden'').} Following the
+conserved-quantity view of \citet{burden2026}, we summarize cross-group score
+heterogeneity by the divergence between the worst group's conformity-score
+distribution $P_{\wg}$ and that of the remaining groups $P_{\neg\wg}$,
+\begin{equation}
+D=\Wone(P_{\wg},P_{\neg\wg})\quad\text{(Wasserstein-1)},\qquad
+D_{\mathrm{KS}}=\sup_t\big|F_{\wg}(t)-F_{\neg\wg}(t)\big|,
+\label{eq:div}
+\end{equation}
+computed per score on a held-out split; $D$ is reported per score (scales differ).
+
+\paragraph{A dissociation principle.} The empirical study is organized around the
+following elementary fact, which separates the by-design content of
+group-conditional calibration from the substantive question we test.
+
+\begin{proposition}[Calibration--representation dissociation]
+\label{prop:dissociation}
+Fix a score $s$ and target $1-\alpha$, and assume within-group exchangeability of
+calibration and test scores.
+\emph{(i)} Group-conditional (Mondrian) split conformal, with per-group threshold
+$\hat q_g$ the $\lceil(1-\alpha)(n_g+1)\rceil$-th smallest calibration score in
+group $g$, satisfies $\Pr\!\big(Y\in C(X)\mid G=g\big)\ge 1-\alpha$ for every group
+$g$, with no dependence on $s$ beyond exchangeability.
+\emph{(ii)} Marginal split conformal, with a single global threshold $\hat q$ set to
+the pooled $(1-\alpha)$-quantile, has per-group coverage
+$\Pr\!\big(Y\in C(X)\mid G=g\big)=F_g(\hat q)$, where $F_g$ is the group-$g$
+nonconformity-score CDF; the worst-group shortfall
+$(1-\alpha)-\min_g F_g(\hat q)$ increases as the worst group's score distribution
+$P_{\wg}$ shifts away from the pool, i.e.\ with the cross-group divergence $D$ of
+\eqref{eq:div}.
+Hence the representation (through $s$, and through any training intervention that
+changes $s$) controls worst-group coverage \emph{only} under marginal calibration;
+under Mondrian it does not.
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+(i) is the standard finite-sample split-conformal guarantee applied within each
+group under within-group exchangeability. For (ii), $\hat q$ is fixed by the pooled
+calibration scores; by definition the group-$g$ coverage is $F_g(\hat q)$. The
+worst group is the one whose scores are most stochastically enlarged (highest
+nonconformity); as $P_{\wg}$ is pushed further above the pool---which $\Wone$ and
+the KS statistic of \eqref{eq:div} quantify---$F_{\wg}(\hat q)$ falls further below
+$1-\alpha$.
+\end{proof}
+
+\noindent\textbf{Remark (what is and is not tested).} Part (i) is true by
+construction; our contribution is therefore \emph{not} that Mondrian covers groups,
+but the \emph{quantitative} claim of part (ii)---that under spurious correlation the
+relevant divergence $D$, and hence the marginal-calibration shortfall, is governed
+by base accuracy and is \emph{not} reduced by last-layer training beyond its
+accuracy effect (Sections~\ref{sec:c1},~\ref{sec:h1}). Proposition~\ref{prop:dissociation}
+also predicts the observed sub-target behavior: Mondrian's $\ge 1-\alpha$ guarantee
+holds in the exchangeable limit, so the empirical $0.85$--$0.89$ reflects
+finite-sample variance at small worst-group calibration counts together with the
+mild exchangeability perturbation induced by evaluating at $\rhotest$ away from
+$\rhocal$---a sub-target \emph{baseline}, not a shift collapse (Section~\ref{sec:h3}).
+
+\paragraph{Group recoverability.} To test whether the deployed representation
+hides the protected group, we measure the test $\auroc$ of a probe
+$h:\phi(x)\mapsto a$ trained in-domain to recover the spurious attribute.
+
+\section{Confound-Controlled Evaluation Protocol}
+\label{sec:protocol}
+
+\paragraph{Accuracy-matched divergence.} $D$ in \eqref{eq:div} and $\covgap$ in
+\eqref{eq:covgap} are mechanically entangled with base accuracy: a more accurate
+model produces sharper, more group-aligned score distributions, so a naive
+``robust training lowers $D$'' partly restates ``robust training raises
+accuracy.'' For each method $m$ and the ERM reference we collect per-seed pairs
+$\big(\mathrm{acc}^{(s)}_m,D^{(s)}_m\big)$ and read the divergence at a common
+accuracy $a^\star$ in the \emph{overlapping} accuracy support:
+\begin{equation}
+\Delta(a^\star)=D_{\mathrm{ERM}}(a^\star)-D_m(a^\star),\qquad
+\Delta(a^\star)>0\Rightarrow m\text{ lowers burden at matched accuracy,}
+\label{eq:matched}
+\end{equation}
+with a $95\%$ bootstrap CI over seeds. When the accuracy supports of $m$ and ERM do
+\emph{not} overlap, $\Delta(a^\star)$ is \textbf{undefined} (\texttt{unmatched});
+we never substitute the raw $D$, which we report separately, labeled uncontrolled.
+
+\paragraph{Pre-registered hypotheses.}
+\begin{hypothesis}[Coverage is a calibration property]\label{hyp:c1}
+Under Mondrian, worst-group coverage is near target for every training method
+including ERM, while under marginal split it falls below target by an amount that
+depends on the training method---so the calibration policy, not the
+representation, controls worst-group coverage.
+\end{hypothesis}
+\begin{hypothesis}[Training buys efficiency]\label{hyp:c2}
+Holding Mondrian fixed, worst-group set size differs by training method and tracks
+base accuracy.
+\end{hypothesis}
+\begin{hypothesis}[Transfer]\label{hyp:h1}
+Robust training lowers the accuracy-matched divergence relative to ERM (CI of
+\eqref{eq:matched} excludes $0$ on $\ge 2/3$ scores at $\rhocal$).
+\end{hypothesis}
+\begin{hypothesis}[Ranking inversion]\label{hyp:h2}
+The training method best for worst-group accuracy differs from the one best for
+worst-group conformal burden, with a CI-separated $\covgap$ gap.
+\end{hypothesis}
+\begin{hypothesis}[Shift survival]\label{hyp:h3}
+Any reduction or coverage level holds across the $\rhotest$ sweep.
+\end{hypothesis}
+\begin{hypothesis}[No auditability tension]\label{hyp:audit}
+The spurious attribute remains recoverable from the representation on which
+worst-group coverage is obtained, so coverage and post-hoc group auditing coexist.
+\end{hypothesis}
+All may return negative; we report whatever the data show.
+
+\paragraph{Discipline.} Each (backbone, dataset, method, seed) arm must reach a
+sane worst-group accuracy for its method or it is excluded with a logged reason;
+all probes are standardized (StandardScaler~$\to$~logistic regression) and trained
+in-domain, with no test-label leakage. We use $\ge3$ training seeds $\times\ge10$
+calibration splits and report training-seed and calibration-split variance
+separately.
+
+\section{Experimental Setup}
+\label{sec:exp}
+
+\paragraph{Datasets and backbones.} Waterbirds and CelebA (blond-hair
+classification, \emph{Male} spurious). Two frozen backbones give the breadth
+axis: an ERM-trained ResNet-50 ($d{=}2048$, the canonical setup) and CLIP
+ViT-B/32 ($d{=}512$). Features are cached once. Both tasks are binary
+($|\mathcal{Y}|=2$) with four groups $g=(y,a)$; cached split sizes are in
+Table~\ref{tab:data} and exact per-group counts are released with the artifacts.
+
+\begin{table}[t]
+\centering
+\caption{Cached split sizes (sample-level) and structure. Both datasets are binary
+with four spurious groups; the evaluation distribution is re-composited to a target
+correlation strength $\rho$ (see below).}
+\label{tab:data}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Dataset & $|\mathcal{Y}|$ & $|\mathcal{G}|$ & train ($\times d$) & eval ($\times d$) \\
+\midrule
+Waterbirds & 2 & 4 & 4795 & 5245 \\
+CelebA & 2 & 4 & 162{,}770 & 29{,}872 \\
+\botrule
+\end{tabular}
+\end{table}
+
+\paragraph{Correlation-strength construction.} For a target $\rho$ we re-weight /
+re-composite the evaluation rows so that the spurious attribute $a$ aligns with the
+majority label pattern with probability $\rho$, holding the marginal class balance
+fixed; the realized $\rho$ is logged per draw. Calibration uses $\rhocal=0.95$;
+final-test coverage is read at each $\rhotest\in\{0.95,0.9,0.8,0.7,0.6,0.5\}$.
+
+\paragraph{Calibration policies.} Beyond the definitions above, Mondrian falls back
+to the pooled quantile when a group's calibration count is below a minimum, and
+shift-robust uses a total-variation ball of radius $\epsilon$ (the higher quantile
+maintaining coverage for any reweighting within the ball), trading efficiency for
+stability under shift.
+
+\paragraph{Uncertainty.} All point estimates are means over $\ge3$ training seeds
+$\times\ge10$ calibration splits; $95\%$ confidence intervals are nonparametric
+bootstrap intervals ($B=1000$) over the (seed, split) cells, and we report
+training-seed and calibration-split standard deviations separately so model and
+calibration variance are not conflated.
+
+\paragraph{Training interventions (last-layer arms).} On frozen features we fit
+ERM, DFR, AFR, balanced subsampling, and last-layer GroupDRO (minutes each on cached
+features). A full-network GroupDRO fine-tune is omitted as unnecessary for any
+conclusion and to avoid an underpowered single heavy arm.
+
+\paragraph{Quality-gate outcomes.} All arms pass except AFR on CelebA, which
+collapses (worst-group accuracy $0.42$ on ResNet-50, $0.013$ on CLIP) and is
+excluded; last-layer GroupDRO seed~1 on CelebA/ResNet-50 ($0.676$) is excluded.
+These exclusions do not affect the dissociation (H\ref{hyp:c1}): cross-training
+spreads are computed over the retained arms and remain $\le 0.024$ under Mondrian
+including ERM, so dropping AFR (which fails its own robustness gate) cannot inflate
+or create the effect. Worst-group accuracy confirms the gate: ERM is far below
+parity on the balanced distribution ($0.35$--$0.51$, strong shortcut learning) while
+the robust arms raise it to $0.64$--$0.91$ (DFR best on Waterbirds; balanced and
+GroupDRO-LL best on CelebA); exclusions are in Appendix~\ref{app:excl} and full
+per-arm accuracies in the released records.
+
+\section{Results}
+\label{sec:results}
+
+\subsection{Coverage Is a Calibration Property, Not a Representation One (H\ref{hyp:c1})}
+\label{sec:c1}
+
+Our central experiment holds the model fixed and varies only the calibration
+policy. Table~\ref{tab:c1} reports worst-group coverage (APS, $\rhocal=0.95$) under
+marginal split, Mondrian, and shift-robust calibration, for every training method
+and cell; Figure~\ref{fig:c1} visualizes it.
+
+The dissociation is uniform. Under \emph{marginal} calibration, worst-group
+coverage is governed by the training method: it ranges from $0.51$ (ERM,
+CLIP/Waterbirds) to $0.87$ (balanced, CLIP/Waterbirds), a spread of up to $0.36$,
+with ERM always the worst. Under \emph{Mondrian}, worst-group coverage is
+essentially flat across all training methods in every cell---cross-training
+spreads of $0.008$ (ResNet/Waterbirds), $0.024$ (CLIP/Waterbirds), $0.003$
+(ResNet/CelebA), and $0.004$ (CLIP/CelebA)---and the worst representation is lifted
+to match the best. The cleanest single comparison: the \emph{same} ERM model,
+re-calibrated from marginal to Mondrian, jumps from $0.564$ to $0.870$
+(ResNet/Waterbirds) and from $0.509$ to $0.854$ (CLIP/Waterbirds), reaching the
+same worst-group coverage as DFR. On CelebA, where ERM's marginal coverage is less
+catastrophic ($0.82$), the Mondrian lift is correspondingly smaller ($+0.06$) but
+identical in direction. Mondrian's worst-group coverage settles at $0.85$--$0.89$,
+slightly below the $0.90$ target---a finite-sample residual we report separately
+(Section~\ref{sec:h3}) that does not bear on the dissociation. \textbf{Worst-group
+coverage is delivered by the calibration mechanism; the representation does not
+provide it.} RAPS and THR reproduce the dissociation, THR with slightly larger
+residual variance (Appendix~\ref{app:c1}).
+
+\begin{table}[t]
+\centering
+\caption{H\ref{hyp:c1}: worst-group coverage (APS, $\rhocal=0.95$) by calibration
+policy and training method. Under marginal split, coverage depends strongly on
+training (ERM worst); under Mondrian it is flat across training in every cell and
+the same ERM model is lifted to match the robust arms. RAPS/THR in
+Appendix~\ref{app:c1}.}
+\label{tab:c1}
+\footnotesize
+\begin{tabular}{llccc}
+\toprule
+Backbone/Dataset & Method & marginal split & Mondrian & shift-robust \\
+\midrule
+\multirow{5}{*}{ResNet-50 / Waterbirds}
+ & ERM & \textbf{0.564} & 0.870 & 0.798 \\
+ & DFR & 0.854 & 0.868 & 0.948 \\
+ & AFR & 0.809 & 0.865 & 0.941 \\
+ & Bal.\ subsample & 0.711 & 0.873 & 0.888 \\
+ & GroupDRO-LL & 0.707 & 0.873 & 0.865 \\
+ & \emph{spread} & \emph{0.290} & \emph{0.008} & \\
+\midrule
+\multirow{5}{*}{CLIP / Waterbirds}
+ & ERM & \textbf{0.509} & 0.854 & 0.653 \\
+ & DFR & 0.852 & 0.865 & 0.946 \\
+ & AFR & 0.805 & 0.857 & 0.923 \\
+ & Bal.\ subsample & 0.867 & 0.864 & 0.958 \\
+ & GroupDRO-LL & 0.693 & 0.841 & 0.844 \\
+ & \emph{spread} & \emph{0.358} & \emph{0.024} & \\
+\midrule
+\multirow{4}{*}{ResNet-50 / CelebA}
+ & ERM & \textbf{0.821} & 0.881 & 0.902 \\
+ & DFR & 0.877 & 0.881 & 0.922 \\
+ & Bal.\ subsample & 0.877 & 0.878 & 0.928 \\
+ & GroupDRO-LL & 0.892 & 0.878 & 0.939 \\
+ & \emph{spread} & \emph{0.071} & \emph{0.003} & \\
+\midrule
+\multirow{4}{*}{CLIP / CelebA}
+ & ERM & \textbf{0.822} & 0.886 & 0.921 \\
+ & DFR & 0.880 & 0.882 & 0.918 \\
+ & Bal.\ subsample & 0.879 & 0.885 & 0.921 \\
+ & GroupDRO-LL & 0.882 & 0.884 & 0.921 \\
+ & \emph{spread} & \emph{0.060} & \emph{0.004} & \\
+\botrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.49\textwidth]{figures/c1_resnet_waterbirds.png}\hfill
+\includegraphics[width=0.49\textwidth]{figures/c1_clip_celeba.png}
+\caption{H\ref{hyp:c1}. Worst-group coverage by calibration policy, grouped by
+training method, for two representative cells (all four in Table~\ref{tab:c1}):
+\emph{left}, ResNet-50/Waterbirds (large ERM lift); \emph{right},
+CLIP/CelebA (smallest, near target). Marginal split (blue) varies with training
+and fails for ERM; Mondrian (orange) is flat across training methods in every
+cell. The representation does not deliver worst-group coverage; the calibration
+mechanism does.}
+\label{fig:c1}
+\end{figure}
+
+\subsection{Training Buys Efficiency, Not Coverage (H\ref{hyp:c2})}
+\label{sec:c2}
+
+Given that Mondrian equalizes worst-group \emph{coverage} across training methods,
+where does training help? Table~\ref{tab:c2} reports the worst-group set size under
+Mondrian against base accuracy. In three of four cells the worst-group set size
+tracks base accuracy (Pearson $-0.85$ on CLIP/Waterbirds, $-0.97$ on
+ResNet/CelebA, $-1.00$ on CLIP/CelebA): more accurate training yields smaller
+(more efficient) worst-group sets at the \emph{same} coverage. ResNet/Waterbirds
+is the exception ($+0.04$, no relationship). Because $|\mathcal{Y}|=2$ the absolute
+efficiency range is narrow, but the direction is consistent. Training and accuracy
+therefore buy \emph{efficiency}; the calibration mechanism
+buys coverage.
+
+\begin{table}[t]
+\centering
+\caption{H\ref{hyp:c2}: worst-group set size under Mondrian (APS, $\rhocal=0.95$)
+vs.\ worst-group accuracy. ``corr'' is Pearson correlation of (worst-group
+accuracy, worst-group set size) across methods. Negative = more accurate yields
+smaller sets.}
+\label{tab:c2}
+\small
+\begin{tabular}{llcc}
+\toprule
+Backbone/Dataset & Method & wg set size & wg acc \\
+\midrule
+\multirow{5}{*}{ResNet-50 / Waterbirds \ (corr $+0.04$)}
+ & ERM & 1.138 & 0.510 \\
+ & DFR & 1.133 & 0.812 \\
+ & AFR & 1.218 & 0.686 \\
+ & Bal.\ subsample & 1.159 & 0.637 \\
+ & GroupDRO-LL & 1.101 & 0.656 \\
+\midrule
+\multirow{5}{*}{CLIP / Waterbirds \ (corr $-0.85$)}
+ & ERM & 1.319 & 0.485 \\
+ & DFR & 1.135 & 0.838 \\
+ & AFR & 1.300 & 0.688 \\
+ & Bal.\ subsample & 1.175 & 0.796 \\
+ & GroupDRO-LL & 1.213 & 0.647 \\
+\midrule
+\multirow{4}{*}{ResNet-50 / CelebA \ (corr $-0.97$)}
+ & ERM & 1.351 & 0.416 \\
+ & DFR & 1.092 & 0.854 \\
+ & Bal.\ subsample & 1.197 & 0.757 \\
+ & GroupDRO-LL & 1.091 & 0.808 \\
+\midrule
+\multirow{4}{*}{CLIP / CelebA \ (corr $-1.00$)}
+ & ERM & 1.163 & 0.352 \\
+ & DFR & 1.047 & 0.879 \\
+ & Bal.\ subsample & 1.056 & 0.890 \\
+ & GroupDRO-LL & 1.041 & 0.905 \\
+\botrule
+\end{tabular}
+\end{table}
+
+\subsection{``Transfer'' Is Mostly an Accuracy Effect (H\ref{hyp:h1})}
+\label{sec:h1}
+
+The dissociation above predicts that any apparent training-side reduction of the
+conformal \emph{burden} should be largely an accuracy effect. Table~\ref{tab:h1}
+confirms it. The \emph{raw} divergence collapses uniformly---ERM's APS divergence
+of $0.19$--$0.22$ falls to $0.01$--$0.12$ for the robust arms---but base accuracy
+also moves sharply, so the raw number is confounded. Once \emph{matched}, the
+picture fragments: on Waterbirds the methods whose accuracy overlaps ERM
+(GroupDRO-LL on both backbones; balanced on ResNet-50) show a significant but
+\emph{modest} residual reduction (e.g.\ GroupDRO-LL on CLIP/Waterbirds
+$\Delta_{\mathrm{APS}}=+0.100\,[+0.085,+0.117]$), while on
+\emph{CelebA every arm is unmatched}---robust training raises base accuracy to
+$0.81$--$0.91$ versus ERM's $0.68$--$0.70$, so no common accuracy level exists and
+$\Delta(a^\star)$ is undefined exactly where robustness is strongest
+(CelebA, Table~\ref{tab:h1}). Uncontrolled comparisons thus overstate the
+conformal-specific benefit by roughly an order of magnitude
+($0.19\!\to\!0.03$ raw vs.\ a $\sim$$0.06$--$0.10$ matched residual where it is
+even defined).
+
+\begin{table}[t]
+\centering
+\caption{H\ref{hyp:h1}: accuracy-matched divergence $\Delta(a^\star)$ (APS,
+$\rhocal=0.95$; $>0$ means robust lowers burden at matched accuracy) and
+uncontrolled raw divergence with base top-1. \texttt{unm.}\ = unmatched. Full
+per-score table in Appendix~\ref{app:h1}.}
+\label{tab:h1}
+\footnotesize
+\begin{tabular}{llccc}
+\toprule
+Backbone/Dataset & Method & $\Delta_{\mathrm{APS}}(a^\star)$ [CI] & raw $D_{\mathrm{APS}}$ & base top-1 \\
+\midrule
+\multirow{4}{*}{ResNet-50 / Waterbirds}
+ & ERM (ref) & --- & 0.190 & 0.940 \\
+ & DFR & \texttt{unm.} & 0.038 & 0.864 \\
+ & Bal.\ subsample & $+0.059\,[+0.030,+0.085]$ & 0.104 & 0.918 \\
+ & GroupDRO-LL & $+0.078\,[+0.061,+0.094]$ & 0.109 & 0.939 \\
+\midrule
+\multirow{4}{*}{CLIP / Waterbirds}
+ & ERM (ref) & --- & 0.216 & 0.932 \\
+ & DFR & \texttt{unm.} & 0.037 & 0.870 \\
+ & Bal.\ subsample & \texttt{unm.} & 0.034 & 0.836 \\
+ & GroupDRO-LL & $+0.100\,[+0.085,+0.117]$ & 0.118 & 0.928 \\
+\midrule
+\multirow{4}{*}{ResNet-50 / CelebA}
+ & ERM (ref) & --- & 0.190 & 0.699 \\
+ & DFR & \texttt{unm.} & 0.027 & 0.862 \\
+ & Bal.\ subsample & \texttt{unm.} & 0.032 & 0.809 \\
+ & GroupDRO-LL & \texttt{unm.} & 0.013 & 0.859 \\
+\midrule
+\multirow{4}{*}{CLIP / CelebA}
+ & ERM (ref) & --- & 0.197 & 0.677 \\
+ & DFR & \texttt{unm.} & 0.030 & 0.902 \\
+ & Bal.\ subsample & \texttt{unm.} & 0.025 & 0.904 \\
+ & GroupDRO-LL & \texttt{unm.} & 0.023 & 0.912 \\
+\botrule
+\end{tabular}
+\end{table}
+
+\subsection{Worst-Group Accuracy Is a Good Proxy for Conformal Burden (H\ref{hyp:h2})}
+\label{sec:h2}
+
+Table~\ref{tab:h2} reports worst-group accuracy and conformal burden $\covgap$ with
+the inversion verdict. An inversion (accuracy-best $\neq$ burden-best, CI-separated)
+occurs in only 2 of 4 cells, with no consistent pattern---on CLIP for Waterbirds
+but on ResNet-50 for CelebA---and is marginal where it appears on CelebA
+($\covgap$ gap $+0.010\,[+0.0005,+0.019]$, both methods near the coverage ceiling).
+Across cells the two rankings are strongly concordant: worst-group accuracy is a reasonable proxy for worst-group
+conformal burden.
+
+\begin{table}[t]
+\centering
+\caption{H\ref{hyp:h2}: worst-group accuracy and burden $\covgap$ (lower better,
+$95\%$ CI) for the accuracy-best and burden-best methods per cell. Inversion is
+real in 2/4 cells and marginal on CelebA. Full five-method table in
+Appendix~\ref{app:h2}.}
+\label{tab:h2}
+\footnotesize
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}llccl@{}}
+\toprule
+Backbone/Dataset & Method (acc / burden-best) & wg acc & $\covgap$ [CI] & inversion \\
+\midrule
+\multirow{2}{*}{ResNet-50 / Waterbirds}
+ & DFR (both) & 0.812 & 0.047\,[0.040,0.055] & \multirow{2}{*}{no} \\
+ & GroupDRO-LL & 0.656 & 0.246\,[0.229,0.263] & \\
+\midrule
+\multirow{2}{*}{CLIP / Waterbirds}
+ & DFR (acc) & 0.838 & 0.053\,[0.046,0.061] & \multirow{2}{*}{\textbf{real} $\Delta{=}{+}0.018$} \\
+ & Bal.\ subsample (burden) & 0.796 & 0.035\,[0.029,0.042] & \\
+\midrule
+\multirow{2}{*}{ResNet-50 / CelebA}
+ & DFR (acc) & 0.854 & 0.022\,[0.019,0.025] & \multirow{2}{*}{\textbf{real} (marg.) $\Delta{=}{+}0.010$} \\
+ & GroupDRO-LL (burden) & 0.808 & 0.012\,[0.004,0.021] & \\
+\midrule
+\multirow{2}{*}{CLIP / CelebA}
+ & GroupDRO-LL (both) & 0.905 & 0.013\,[0.010,0.015] & \multirow{2}{*}{no} \\
+ & Bal.\ subsample & 0.890 & 0.018\,[0.015,0.020] & \\
+\botrule
+\end{tabular*}
+\end{table}
+
+\subsection{Stable but Sub-Target under Shift; No Relocation (H\ref{hyp:h3})}
+\label{sec:h3}
+
+We sweep $\rhotest$ with calibration fixed at $\rhocal=0.95$
+(Figure~\ref{fig:shift}; full tables in Appendix~\ref{app:h3}). Three observations
+hold across cells. (i) \emph{Stability}: worst-group coverage varies by $<0.05$
+over the whole sweep for every method. (ii) \emph{Sub-target}: under Mondrian no
+method reaches $0.90$; the stable level is $0.85$--$0.89$, consistent with
+group-conditional calibration relocating but not closing the worst-group gap.
+Whether this level clears a strict ``$\ge\!0.88$'' validity bar across the sweep is
+therefore baseline-dependent: it does on CelebA (level $\approx0.88$) and does not
+on Waterbirds (level $\approx0.85$), but the curve is flat in both---this is a
+sub-target baseline, not a shift collapse. (iii) \emph{No relocation}: the H1
+matched-divergence reduction becomes \texttt{undefined} across the sweep, and
+set-size disparity \emph{eases} as $\rho\!\to\!0.5$ in most cells rather than
+inflating (only DFR and GroupDRO-LL on CelebA/ResNet-50 show mild growth). The
+``relocate, not remove'' phenomenon of \citet{burden2026} is therefore not
+observed as a shift effect: the burden simply tracks correlation strength and is
+maximal at the calibration point.
+
+The sub-target level is finite-sample, not a failure of the dissociation: Mondrian
+worst-group coverage is $2$--$4\times$ more stable across calibration splits than
+marginal (SD $0.011$--$0.036$ vs.\ $0.030$--$0.138$), and the shortfall co-scales
+with this SD---larger on Waterbirds ($0.030$--$0.044$) than on CelebA
+($0.016$--$0.020$). This co-scaling is the signature of finite-sample worst-group
+quantile noise: a stable, near-target baseline whose gap shrinks as worst-group
+calibration data grows.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.49\textwidth]{figures/shift_clip_waterbirds.png}\hfill
+\includegraphics[width=0.49\textwidth]{figures/shift_resnet_celeba.png}
+\caption{H\ref{hyp:h3} under correlation-strength shift ($\rhotest$ swept with
+calibration fixed at $\rhocal=0.95$). Within each panel: worst-group coverage
+(stable, sub-target), mean set size, and set-size disparity (mostly easing as
+$\rho\!\to\!0.5$). Worst-group coverage stays flat and below the dashed $0.90$
+target across the sweep; there is no relocation of the conformal burden.}
+\label{fig:shift}
+\end{figure}
+
+\subsection{No Coverage--Auditability Tension (H\ref{hyp:audit})}
+\label{sec:audit}
+
+Finally we test whether the representation that yields worst-group coverage hides
+the protected group. A standardized probe recovers the spurious attribute at
+$\auroc=0.947\,[0.945,0.957]$ (ResNet/Waterbirds) and $0.977\,[0.975,0.982]$
+(CLIP/Waterbirds) while Mondrian simultaneously achieves worst-group coverage
+$0.870\,[0.802,0.903]$ and $0.854\,[0.791,0.881]$: coverage and auditability
+\emph{coexist}. Projecting out the top-$k$ spurious-predictive directions
+(Figure~\ref{fig:audit}) leaves coverage flat on ResNet-50 and raises it by at most
+$0.02$ on CLIP---still sub-target---as $\auroc$ falls toward chance. Forcing
+invariance does not unlock coverage; group-conditional calibration already delivers
+it from a fully recoverable representation, so there is no coverage--auditability
+tension, consistent with H\ref{hyp:c1}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.60\linewidth]{figures/recoverability_tradeoff.png}
+\caption{Worst-group coverage vs.\ spurious-attribute recoverability as the
+top-$k$ spurious directions are projected out ($k\in\{0,1,5,20\}$). Coverage is
+flat (ResNet-50) or rises only $\sim$$0.02$ and stays sub-target (CLIP) as
+recoverability falls toward chance.}
+\label{fig:audit}
+\end{figure}
+
+\subsection{Group-Conditional Calibration Is Deployable with Predicted Groups}
+\label{sec:predgroup}
+
+Mondrian uses group labels for per-group thresholds, raising a deployment
+objection: are ground-truth groups required? Because the spurious attribute is
+highly recoverable (Section~\ref{sec:audit}), they are not. We re-run Mondrian with
+probe-predicted groups in three conditions: (a) true groups; (b) predicted
+groups at test only (thresholds from true-group calibration); and (c) predicted
+groups at \emph{both} calibration and test---the fully deployable setting in which
+the attribute is never observed. Coverage is always scored on the true groups.
+
+Table~\ref{tab:predgroup} reports the deployable setting (c) against the oracle (a)
+for APS. The hit is small: $16$ of $18$ (method, cell) combinations clear a $0.02$
+bar---every method on the ResNet cells ($|\cov(a)-\cov(c)|\le 0.012$) and all but
+one robust method on the CLIP cells ($\le 0.017$). The two exceptions are
+instructive: ERM on CLIP/Waterbirds (gap $+0.051$), the most group-dependent model,
+where probe errors on the minority group hurt most and which one would not deploy
+for worst-group reliability anyway; and a marginal overshoot for GroupDRO on
+CLIP/CelebA ($+0.025$). THR is the least stable score (Appendix~\ref{app:predgroup});
+APS and RAPS are robust. This closes the loop with H\ref{hyp:audit}: the \emph{same}
+recoverability that makes the representation auditable also makes group-conditional
+calibration deployable without observed group labels.
+
+\begin{table}[t]
+\centering
+\caption{Deployable Mondrian (APS, $\rhocal{=}\rhotest{=}0.95$): worst-group coverage
+under ground-truth groups $\cov(a)$ vs.\ probe-predicted groups at calibration and
+test $\cov(c)$, with the gap and worst-group set-size cost. Deployable $=|\cov(a)-
+\cov(c)|\le 0.02$. Probe AUROC in $[0.945,0.999]$.}
+\label{tab:predgroup}
+\footnotesize
+\begin{tabular}{llcccccc}
+\toprule
+Backbone/Dataset & Method & $\cov(a)$ & $\cov(c)$ & gap & size cost & deploy. \\
+\midrule
+\multirow{5}{*}{ResNet-50 / Waterbirds}
+ & AFR & 0.865 & 0.877 & $-0.012$ & $+0.01$ & \checkmark \\
+ & Bal.\ subsample & 0.873 & 0.867 & $+0.006$ & $-0.02$ & \checkmark \\
+ & DFR & 0.868 & 0.874 & $-0.007$ & $+0.02$ & \checkmark \\
+ & ERM & 0.870 & 0.861 & $+0.009$ & $+0.05$ & \checkmark \\
+ & GroupDRO-LL & 0.873 & 0.870 & $+0.003$ & $+0.08$ & \checkmark \\
+\midrule
+\multirow{4}{*}{ResNet-50 / CelebA}
+ & Bal.\ subsample & 0.878 & 0.879 & $-0.001$ & $+0.02$ & \checkmark \\
+ & DFR & 0.881 & 0.878 & $+0.003$ & $-0.02$ & \checkmark \\
+ & ERM & 0.881 & 0.876 & $+0.005$ & $-0.12$ & \checkmark \\
+ & GroupDRO-LL & 0.878 & 0.875 & $+0.002$ & $-0.04$ & \checkmark \\
+\midrule
+\multirow{5}{*}{CLIP / Waterbirds}
+ & AFR & 0.857 & 0.855 & $+0.002$ & $+0.06$ & \checkmark \\
+ & Bal.\ subsample & 0.864 & 0.873 & $-0.008$ & $+0.01$ & \checkmark \\
+ & DFR & 0.865 & 0.869 & $-0.004$ & $+0.02$ & \checkmark \\
+ & ERM & 0.854 & 0.803 & $+0.051$ & $+0.20$ & --- \\
+ & GroupDRO-LL & 0.841 & 0.826 & $+0.015$ & $+0.13$ & \checkmark \\
+\midrule
+\multirow{4}{*}{CLIP / CelebA}
+ & Bal.\ subsample & 0.885 & 0.880 & $+0.005$ & $-0.01$ & \checkmark \\
+ & DFR & 0.882 & 0.865 & $+0.017$ & $-0.06$ & \checkmark \\
+ & ERM & 0.886 & 0.887 & $-0.001$ & $-0.02$ & \checkmark \\
+ & GroupDRO-LL & 0.884 & 0.859 & $+0.025$ & $-0.05$ & --- \\
+\botrule
+\end{tabular}
+\end{table}
+
+\section{Discussion}
+\label{sec:discussion}
+
+The results compose into a single thesis. Worst-group
+\emph{coverage} is delivered by the calibration policy: marginal calibration leaves
+it at the mercy of the representation (ERM collapses), while Mondrian makes it
+nearly invariant to training and lifts even ERM to match a robustly trained model
+(H\ref{hyp:c1}); training instead buys \emph{efficiency} (H\ref{hyp:c2}). Everything
+else follows: the apparent training-side reduction of conformal burden is largely an
+accuracy effect, modest or unmeasurable once matched (H\ref{hyp:h1}); accuracy-best
+is almost always burden-best (H\ref{hyp:h2}); under shift coverage is stable but
+sub-target (H\ref{hyp:h3}); and the representation does not hide the group, so
+coverage and auditability coexist (Section~\ref{sec:audit}). The lever is the
+calibration \emph{mechanism}, not the score \emph{representation}.
+
+The recommendation is deflationary and useful: (a) report
+conformal-burden comparisons \emph{at matched accuracy}, since uncontrolled
+comparisons overstate training-side benefits by an order of magnitude; (b) do not
+expect a training method chosen for worst-group accuracy to be suboptimal for
+conformal burden; and (c) obtain worst-group coverage from group-conditional
+calibration, which remains effective on ordinary, fully auditable representations
+and---because the group is recoverable---is deployable with probe-predicted groups
+(Section~\ref{sec:predgroup}), so test-time group labels are not required.
+
+\section{Limitations}
+\label{sec:limitations}
+
+Our conclusions are empirical and scoped to two vision benchmarks, two frozen
+backbones, last-layer interventions, and binary spurious attributes; a
+full-network GroupDRO fine-tune and a third dataset would extend breadth, though
+the consistency of H\ref{hyp:c1} across all four cells suggests additional data
+would refine rather than overturn it. The accuracy-matched comparison
+(H\ref{hyp:h1}) is undefined when a method's accuracy support does not overlap
+ERM's, which is itself informative but prevents a uniform statement. Because
+$|\mathcal{Y}|=2$, set sizes lie in $[1,2]$, compressing the efficiency axis
+(H\ref{hyp:c2}); multi-class tasks would give it more range. Mondrian's
+group-conditional coverage is, by construction, close to a per-group target, so
+H\ref{hyp:c1}'s non-trivial content is the \emph{magnitude} of marginal
+calibration's representation-dependent failure and the size of the ERM lift, which
+we quantify. Deployable Mondrian (Section~\ref{sec:predgroup})
+holds for APS/RAPS and robust arms but degrades for the most group-dependent
+model and the THR score, scoping that claim to robust models and rank-based scores;
+it also infers a protected attribute at test time, so it should be used only where
+such inference is permissible and auditable. Confidence intervals do not model
+cross-dataset variance.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+Across a confound-controlled grid, the honest answers are: worst-group coverage
+is a calibration property, not a representation one; training buys efficiency, not
+coverage; the conformal ``transfer'' is mostly an accuracy effect; the inversion is
+rare; coverage is stable but sub-target under shift; and there is no auditability
+tension. We release the full $2\times2\times5\times3\times3$ grid, the shift sweep,
+and the accuracy-matched protocol so that future training-side conformal claims can
+be evaluated without the accuracy confound.
+
+
+\backmatter
+\bmhead{Data and code availability}
+Waterbirds and CelebA are public. All experiment records, the calibration ablation,
+predicted-group results, per-aggregate variance, the quality-gate log, and figure
+scripts are released: \texttt{grid\_records.csv}, \texttt{calibration\_ablation.csv},
+\texttt{predicted\_group\_mondrian.csv}. The conformal layer re-runs in minutes on
+cached scores without GPU retraining.
+
+\section*{Declarations}
+\textbf{Funding.} The authors received no specific funding for this work.
+\textbf{Competing interests.} The authors have no competing interests relevant to
+this article. \textbf{Ethics approval.} Not applicable; this study uses only public
+benchmark datasets and involves no human participants or animals. \textbf{Data and
+code availability.} See ``Data and code availability'' above. \textbf{Author
+contributions.} O.O.\ designed and ran the experiments and wrote the manuscript;
+N.Y.\ and Y.N.\ supervised the work and revised the manuscript. All authors approved
+the final version.
+
+\begin{appendices}
+\section{Calibration-Ablation Details}
+\label{app:c1}
+Table~\ref{tab:c1} (main text) gives APS worst-group coverage under all three
+calibration policies for every cell and method; the coverage gap is
+$\covgap=0.90-\cov$ (negative = over-target). The dissociation is uniform across
+scores: RAPS and THR reproduce the marginal-dependent/Mondrian-flat pattern. The
+per-cell strict flag ``Mondrian $\ge0.88$ for all \emph{and} marginal below target
+for all'' is met for APS and RAPS on CLIP/CelebA and fails elsewhere only because
+Mondrian's stable level sits at $0.85$--$0.88$ (the sub-target residual of
+Section~\ref{sec:h3}), not because the dissociation fails. Full
+per-(cell,score,method) coverage, $\covgap$, and CIs---including the shift-robust
+column, which over-covers ($0.84$--$0.96$) at an efficiency cost---are released in
+\texttt{calibration\_ablation.csv}.
+
+\section{Shift-Robust Calibration}
+\label{app:shiftrobust}
+The shift-robust policy generally over-covers the worst group relative to target
+($0.84$--$0.96$) at the cost of larger sets, and is most useful when $\rhotest$ is
+expected to move far from $\rhocal$. It does not change the H\ref{hyp:c1}
+conclusion: like Mondrian, it makes worst-group coverage far less
+representation-dependent than marginal calibration. Per-cell numbers are in
+Table~\ref{tab:c1} (shift-robust column) and the released CSV.
+
+\section{Per-Score H\ref{hyp:h1} (accuracy-matched) Tables}
+\label{app:h1}
+For each (cell, method) we report $\Delta(a^\star)$ for APS, RAPS, and THR with
+$95\%$ CIs, the overlapping accuracy support, and the raw divergence with base
+accuracy. The GO bar (CI excludes $0$ on $\ge2/3$ scores) is met only by
+GroupDRO-LL (both Waterbirds backbones) and balanced subsampling
+(ResNet/Waterbirds); all CelebA arms are \texttt{unmatched} on all three scores.
+THR yields the largest matched reductions where defined (e.g.\ GroupDRO-LL on
+CLIP/Waterbirds $\Delta_{\mathrm{THR}}=+0.159\,[+0.131,+0.185]$), consistent with
+THR's sensitivity to top-1 mass. Full numbers in the released records.
+
+\section{Full Five-Method H\ref{hyp:h2} Tables}
+\label{app:h2}
+Per cell, $\covgap$ with $95\%$ CIs for all retained methods, the worst-group
+accuracy ranking, the worst-group burden ranking, the point-estimate inversion,
+and the CI-separated inversion test. Summary of the inversion test: real on
+CLIP/Waterbirds ($\Delta\covgap=+0.018\,[+0.008,+0.028]$) and ResNet/CelebA
+($+0.010\,[+0.0005,+0.019]$); absent (CI includes $0$) on ResNet/Waterbirds and
+CLIP/CelebA.
+
+\section{Full H\ref{hyp:h3} Shift Tables}
+\label{app:h3}
+Per (cell, method, score): the divergence-survival label across
+$\rhotest\in\{0.95,\dots,0.5\}$ (\texttt{survived} / \texttt{never\_held} /
+\texttt{held\_then\_broke@}$\rho$ / \texttt{undefined@}$\rho$), the set-size
+disparity at $\rho=0.95$ and $\rho=0.50$ with its observed trend
+(\texttt{eases}/\texttt{grows}/\texttt{flat}), and worst-group coverage mean, range
+over $\rho$, flatness ($<0.05$), and sub-target flag. Across all cells: divergence
+survival is \texttt{undefined} (matched comparison loses overlap under shift);
+disparity trend is \texttt{eases} or \texttt{flat} except DFR/GroupDRO-LL on
+CelebA/ResNet-50 (\texttt{grows}); coverage range $<0.05$ and sub-target for every
+method.
+
+\section{Excluded and Flagged Arms}
+\label{app:excl}
+Hard-floor exclusions (worst-group accuracy below the per-method floor $0.75$):
+AFR on CelebA (ResNet-50 $0.42$; CLIP $0.013$, all seeds); last-layer GroupDRO
+seed~1 on CelebA/ResNet-50 ($0.676$). Soft flag (kept): DFR seed~2 on
+CelebA/ResNet-50 ($0.847$, just below the $0.85$ reference). AFR's CelebA collapse
+is a known failure mode of automatic feature reweighting under this attribute and
+is not a pipeline error.
+
+\section{Procedures, Hyperparameters, and Statistics}
+\label{app:hyper}
+\textbf{Features.} Frozen ERM ResNet-50 ($d{=}2048$) and CLIP ViT-B/32 ($d{=}512$),
+extracted once and cached; all training is last-layer on cached features.
+\textbf{Heads.} ERM (cross-entropy); DFR (group-balanced last-layer retraining);
+AFR (automatic feature reweighting); balanced subsampling; last-layer GroupDRO.
+\textbf{Calibration.} marginal split (one global quantile); Mondrian (a separate
+quantile per group $g$, with a fallback to the pooled quantile when a group's
+calibration count $n_g<50$); shift-robust (worst-case threshold over a
+total-variation ball of radius $\epsilon=0.1$ around the calibration distribution;
+results are insensitive over $\epsilon\in[0.05,0.2]$, trading $1$--$5$ points of
+over-coverage for stability); $1-\alpha=0.90$. \textbf{Scores.} THR, APS, RAPS
+(with standard tail regularization). \textbf{Shift.}
+$\rhocal=0.95$; $\rhotest\in\{0.95,0.9,0.8,0.7,0.6,0.5\}$ via reweighted/composited
+evaluation distributions, with realized $\rho$ logged. \textbf{Seeds/splits.}
+$\ge3$ training seeds $\times\ge10$ calibration splits; $95\%$ CIs by bootstrap;
+training-seed standard deviation and calibration-split standard deviation reported
+separately per aggregate. \textbf{Accuracy matching.} accuracy is overall (base)
+top-1 on the evaluation distribution; from the per-seed $(\mathrm{acc},D)$ clouds of
+$m$ and ERM we take $a^\star$ in the overlapping accuracy range and read each
+method's $D(a^\star)$ by linear interpolation of its cloud, bootstrapping over
+seeds; $\Delta(a^\star)$ is \texttt{unmatched} when the supports are disjoint.
+\textbf{Recoverability.} StandardScaler $\to$ logistic
+regression, in-domain train$\to$test; invariant-ization by projecting out the
+top-$k$ spurious-predictive directions, $k\in\{0,1,5,20\}$. \textbf{Predicted-group
+Mondrian.} the recoverability probe predicts the stratum $2y+\hat a$; thresholds
+and/or test assignment use $\hat a$; coverage is always scored on true groups.
+\textbf{Compute.} the
+full grid and ablation re-calibrate cached head posteriors; no run exceeds the
+budget. \textbf{Release.} \texttt{grid\_records.csv},
+\texttt{calibration\_ablation.csv}, \texttt{predicted\_group\_mondrian.csv},
+per-aggregate JSON (seed-std vs split-std), the quality-gate log, and all figure
+scripts are released.
+
+\section{Predicted-Group Mondrian: RAPS and THR}
+\label{app:predgroup}
+Table~\ref{tab:predgroup} reports APS. RAPS reproduces it---both ResNet cells fully
+deployable, robust arms deployable on CLIP, ERM on CLIP/Waterbirds the exception. THR
+is the least stable score: under predicted groups several arms exceed the $0.02$ bar
+in each cell (e.g.\ AFR and DFR on ResNet/Waterbirds via over-coverage, ERM and
+GroupDRO-LL on CLIP/Waterbirds), reflecting THR's sensitivity to small perturbations
+of the top-$1$ softmax mass when the stratum is mis-assigned. We therefore scope the
+deployable-Mondrian claim to APS/RAPS. Full per-(cell,score,method) coverage in all
+three conditions (true / predicted-test / predicted-both) with CIs are released in
+\texttt{predicted\_group\_mondrian.csv}.
+
+\end{appendices}
+
+\bibliography{sn-bibliography}
+
+\end{document}
