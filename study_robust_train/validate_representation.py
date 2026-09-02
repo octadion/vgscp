@@ -165,6 +165,28 @@ def validate_representation():
     check("flatness spreads are finite and non-negative",
           all(0 <= d["mondrian_flatness"]["spread"] < 1 for d in v["per_representation"].values()))
 
+    print("\n[9b] representation: manipulation check gates the interpretation")
+    from .representation import manipulation_check
+    man = out["manipulation"]["synthetic"]
+    check("manipulation check produced a verdict", man["verdict"].startswith(("PASS", "FAIL")),
+          man["verdict"][:60])
+    check("per-head rows carry the reference wg acc",
+          all("reference_wg_acc" in r for r in man["per_head"].values()))
+    # wg-acc is one number per (repr, head, seed); the record list repeats it across splits x
+    # scores x calibrations, so n must be the seed count, not the record count.
+    n_seeds = len({r["ft_seed"] for r in recs})
+    any_cmp = next(v for r in man["per_head"].values() for v in r.values() if isinstance(v, dict))
+    check("wg-acc de-duplicated to one value per seed (not inflated by splits)",
+          any_cmp["n_obs"] == n_seeds, f"n_obs={any_cmp['n_obs']} == {n_seeds} seeds")
+    rigged_fail = [dict(r, worst_group_acc=(0.9 if r["representation"] == "erm" else 0.2))
+                   for r in recs]
+    check("a robust arm WORSE than the reference -> FAIL",
+          manipulation_check(rigged_fail)["synthetic"]["verdict"].startswith("FAIL"))
+    rigged_pass = [dict(r, worst_group_acc=(0.2 if r["representation"] == "erm" else 0.9))
+                   for r in recs]
+    check("a robust arm clearly better -> PASS",
+          manipulation_check(rigged_pass)["synthetic"]["verdict"].startswith("PASS"))
+
     print("\n[10] representation: report emitter")
     import tempfile, os
     with tempfile.TemporaryDirectory() as td:
@@ -173,7 +195,8 @@ def validate_representation():
         check("report written", os.path.exists(p) and len(text) > 400)
         for token in ("Primary lever comparison", "Sub-target diagnostic", "equivalence @ margin",
                       "mean *over-groups* coverage", "Did the fine-tune change the representation?",
-                      "Same comparison with each head held fixed"):
+                      "Same comparison with each head held fixed",
+                      "Manipulation check (READ FIRST)"):
             check(f"report contains {token!r}", token in text)
 
     print("\n[11] representation: the verdict discriminates in BOTH directions")

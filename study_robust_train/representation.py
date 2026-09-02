@@ -101,7 +101,8 @@ def run_representation_experiment(data_by_repr: dict, *, heads=REPR_HEADS, score
                                     "backbone": gd.backbone, "worst_group_acc": float(wg_acc)})
                         records.append(rec)
     return {"records": records,
-            "verdicts": representation_verdict(records, scores=scores)}
+            "verdicts": representation_verdict(records, scores=scores),
+            "manipulation": manipulation_check(records)}
 
 
 def _sel(records, **eq):
@@ -111,6 +112,64 @@ def _sel(records, **eq):
 def _vals(recs, field="worst_group_cov"):
     return (np.array([r[field] for r in recs], dtype=float),
             np.array([r["ft_seed"] for r in recs]))
+
+
+def manipulation_check(records, *, reference: str = "erm") -> dict:
+    """Did the robust objectives actually produce more robust representations?
+
+    This gates the interpretation of everything else. A null result ("changing the representation
+    does not improve worst-group coverage") is evidence only if the representation really changed in
+    the intended direction; if the robust arm is no better -- or worse -- than ERM on worst-group
+    *accuracy*, the manipulation failed and the null says nothing about representations.
+
+    Compares eval worst-group accuracy per (representation, head) against the reference
+    representation, clustered on fine-tune seeds. Worst-group accuracy is a property of
+    (representation, head, seed) alone, so records are de-duplicated to one value per cell first --
+    otherwise the repeated splits/scores/calibrations in the record list would inflate n and
+    manufacture significance.
+    """
+    out = {}
+    for dataset in sorted({r["dataset"] for r in records}):
+        sub = [r for r in records if r["dataset"] == dataset]
+        heads = sorted({r["head"] for r in sub})
+        reprs = sorted({r["representation"] for r in sub})
+        if reference not in reprs:
+            out[dataset] = {"verdict": f"no {reference!r} reference representation", "per_head": {}}
+            continue
+
+        def cell(rp, h):                       # one wg-acc per (repr, head, seed)
+            by_seed = {}
+            for r in sub:
+                if r["representation"] == rp and r["head"] == h:
+                    by_seed[r["ft_seed"]] = r["worst_group_acc"]
+
+            seeds = np.array(sorted(by_seed))
+            return np.array([by_seed[s] for s in seeds], dtype=float), seeds
+
+        per_head, improved = {}, []
+        for h in heads:
+            ref_v, ref_s = cell(reference, h)
+            row = {"reference_wg_acc": float(ref_v.mean()) if ref_v.size else float("nan")}
+            for rp in reprs:
+                if rp == reference:
+                    continue
+                v, s = cell(rp, h)
+                if v.size and ref_v.size and v.size == ref_v.size and (s == ref_s).all():
+                    d = paired_cluster_diff_ci(v, ref_v, s)
+                    row[rp] = {"wg_acc": float(v.mean()), **d}
+                    if d["point"] > 0 and d["excludes_zero"]:
+                        improved.append((h, rp))
+            per_head[h] = row
+        out[dataset] = {
+            "per_head": per_head, "reference": reference,
+            "significantly_more_robust": [list(x) for x in improved],
+            "verdict": ("PASS — at least one robust objective produced a significantly more robust "
+                        "representation" if improved else
+                        "FAIL — no robust objective beat the reference representation on eval "
+                        "worst-group accuracy; a null coverage result here is UNINFORMATIVE about "
+                        "representations, not evidence for the thesis"),
+        }
+    return out
 
 
 def representation_verdict(records, *, scores=REPR_SCORES, margin: float = FLATNESS_MARGIN) -> dict:
@@ -232,6 +291,31 @@ def write_representation_md(out: dict, path: str = "REPRESENTATION.md") -> str:
          "varies here, not only the last layer. Intervals are two-stage cluster bootstraps over",
          "fine-tune seeds (splits nested within seed), per R2.3.",
          ""]
+
+    # Gate first: a null coverage result only counts as evidence if the manipulation worked.
+    man = out.get("manipulation") or {}
+    if man:
+        L += ["## Manipulation check (READ FIRST)", "",
+              "Did the robust objectives actually produce more robust representations? If not, the",
+              "null coverage results below say nothing about representations and must not be read",
+              "as support for the thesis.", ""]
+        for dataset, d in sorted(man.items()):
+            L.append(f"**{dataset}: {d['verdict']}**")
+            L.append("")
+            if d.get("per_head"):
+                L.append("| head | representation | eval wg acc | Δ vs " + d.get("reference", "erm")
+                         + " [95% CI] | more robust |")
+                L.append("|---|---|---|---|---|")
+                for h, row in sorted(d["per_head"].items()):
+                    ref = row.get("reference_wg_acc", float("nan"))
+                    L.append(f"| {h} | {d.get('reference','erm')} (ref) | {ref:.3f} | — | — |")
+                    for rp, v in sorted(row.items()):
+                        if not isinstance(v, dict):
+                            continue
+                        sig = "yes" if (v["point"] > 0 and v["excludes_zero"]) else "no"
+                        L.append(f"| {h} | {rp} | {v['wg_acc']:.3f} | {v['point']:+.3f} "
+                                 f"[{v['lo']:+.3f}, {v['hi']:+.3f}] | {sig} |")
+                L.append("")
     for key in sorted(V):
         v = V[key]
         L.append(f"## {key}")

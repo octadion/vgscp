@@ -6,11 +6,24 @@ backbone that is itself ERM-fine-tuned (``features.resnet50_erm_features`` optim
 the missing arm: the SAME ResNet-50 fine-tuned end-to-end under a *group-robust* objective, so the
 representation itself — not just the head — carries the robustness.
 
-Objectives (all full-network, identical schedule so the comparison is matched):
+Objectives (all full-network):
   ``erm``       plain cross-entropy (the reference representation)
   ``groupdro``  online GroupDRO over the 4 groups (Sagawa et al., 2020): per-batch group losses
                 reweighted by exponentiated-gradient ascent on q
   ``reweight``  group-balanced sampling (WeightedRandomSampler at inverse group frequency)
+
+Each objective takes its OWN hyperparameters rather than a shared schedule. Forcing one schedule on
+all three sounds like the fairer control but is not: GroupDRO on Waterbirds needs SGD with strong
+L2 to work at all (Sagawa et al. show it overfits the minority group otherwise), so running it on
+ERM's Adam recipe cripples it and turns a failed manipulation into a spurious null. The fair
+comparison gives each objective the recipe its own literature prescribes, then checks -- via the
+manipulation check in ``representation.py`` -- that the robust arms really did become more robust
+before any null result about representations is interpreted.
+
+``weight_decay`` defaults to 0.0 to match the backbone the submitted paper already used
+(``features.resnet50_erm_features``: ``Adam(net.parameters(), lr=lr)``). Adding L2 inside Adam
+measurably degraded worst-group accuracy relative to that backbone, which broke comparability with
+the paper's own tables.
 
 Returns the same ``{split: (N, d) L2-normalised float array}`` dict as
 ``features.resnet50_erm_features``, so a fine-tuned representation drops straight into
@@ -43,7 +56,7 @@ def _paths_hash(paths) -> str:
 
 def cache_key(objective: str, tag: str, paths_by_split: dict, *, epochs: int, seed: int,
               max_train, lr: float, batch_size: int, optimizer: str = "adam",
-              weight_decay: float = 1e-4, groupdro_eta: float = 0.01) -> str:
+              weight_decay: float = 0.0, groupdro_eta: float = 0.01) -> str:
     """Cache identity for one fine-tuned representation.
 
     EVERY knob that changes the learned representation must appear here. ``groupdro_eta``,
@@ -96,7 +109,7 @@ def _group_weights(groups: np.ndarray) -> np.ndarray:
 
 def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: dict, *,
                       objective: str = "erm", tag: str = "waterbirds", device: str = "cuda",
-                      epochs: int = 10, lr: float = 1e-3, weight_decay: float = 1e-4,
+                      epochs: int = 10, lr: float = 1e-3, weight_decay: float = 0.0,
                       batch_size: int = 128, image_size: int = 224, seed: int = 0,
                       max_train=None, groupdro_eta: float = 0.01,
                       optimizer: str = "adam", train_split: str = "train",
