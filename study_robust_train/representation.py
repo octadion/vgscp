@@ -172,7 +172,8 @@ def _vals(recs, field="worst_group_cov"):
             np.array([r["ft_seed"] for r in recs]))
 
 
-def manipulation_check(records, *, reference: str = "erm") -> dict:
+def manipulation_check(records, *, reference: str = "erm", primary_head: str = "erm",
+                       weak_margin: float = 0.05) -> dict:
     """Did the robust objectives actually produce more robust representations?
 
     This gates the interpretation of everything else. A null result ("changing the representation
@@ -218,14 +219,41 @@ def manipulation_check(records, *, reference: str = "erm") -> dict:
                     if d["point"] > 0 and d["excludes_zero"]:
                         improved.append((h, rp))
             per_head[h] = row
+        # "Some head improved" is too weak a gate. The primary lever holds the head at
+        # ``primary_head``, so the manipulation has to have worked THERE for that lever's null to
+        # say anything about representations. On CelebA the best gain was +0.019 at the DFR head
+        # while the plain head moved -0.002 (ns) -- a pass under the old rule, but the primary
+        # lever was then comparing representations that are statistically identical.
+        at_primary = [(h, rp) for (h, rp) in improved if h == primary_head]
+        best_gain = max((v["point"] for row in per_head.values() for v in row.values()
+                         if isinstance(v, dict)), default=float("nan"))
+        primary_gain = max((v["point"] for k, v in per_head.get(primary_head, {}).items()
+                            if isinstance(v, dict)), default=float("nan"))
+        if at_primary:
+            status = "PASS"
+            note = (f"the manipulation works at the primary head ({primary_head}); the primary "
+                    f"lever compares genuinely different representations")
+        elif improved:
+            status = "WEAK"
+            note = (f"a robust objective beats the reference only at head(s) "
+                    f"{sorted({h for h, _ in improved})}, NOT at the primary head "
+                    f"{primary_head!r} (best gain there {primary_gain:+.3f}). The primary lever "
+                    f"therefore compares near-identical representations, so its null is weak "
+                    f"evidence about representations and must be reported as such")
+        else:
+            status = "FAIL"
+            note = ("no robust objective beat the reference on eval worst-group accuracy; a null "
+                    "coverage result here is UNINFORMATIVE about representations, not evidence "
+                    "for the thesis")
+        if status != "FAIL" and np.isfinite(best_gain) and best_gain < weak_margin:
+            note += (f". Note the effect is small in absolute terms (best gain {best_gain:+.3f} "
+                     f"< {weak_margin:.2f}), so the representation axis was barely moved")
         out[dataset] = {
-            "per_head": per_head, "reference": reference,
+            "per_head": per_head, "reference": reference, "primary_head": primary_head,
             "significantly_more_robust": [list(x) for x in improved],
-            "verdict": ("PASS — at least one robust objective produced a significantly more robust "
-                        "representation" if improved else
-                        "FAIL — no robust objective beat the reference representation on eval "
-                        "worst-group accuracy; a null coverage result here is UNINFORMATIVE about "
-                        "representations, not evidence for the thesis"),
+            "improved_at_primary_head": bool(at_primary),
+            "best_gain": float(best_gain), "primary_head_gain": float(primary_gain),
+            "status": status, "verdict": f"{status} — {note}",
         }
     return out
 
@@ -285,6 +313,24 @@ def representation_verdict(records, *, scores=REPR_SCORES, margin: float = FLATN
                             "hi": a["hi"] - b["lo"], "n_seeds": min(a["n_seeds"], b["n_seeds"]),
                             "n_obs": a["n_obs"] + b["n_obs"], "method": a["method"] + " (unpaired)"}
                     diff["excludes_zero"] = bool(diff["lo"] > 0 or diff["hi"] < 0)
+                # Three outcomes, not two. An earlier version tested only ``point > 0`` and labelled
+                # everything else "competitive", which silently disguised the case that actually
+                # contradicts the thesis: a CI-separated NEGATIVE difference, i.e. marginal
+                # calibration beating Mondrian. That happens on CelebA once the head is robust, and
+                # it has to be reported as a loss rather than a tie.
+                sep = bool(diff.get("excludes_zero"))
+                if diff["point"] > 0 and sep:
+                    direction, verdict = "calibration_dominates", (
+                        "CALIBRATION LEVER DOMINATES (worst Mondrian beats best marginal, "
+                        "CI excludes 0)")
+                elif diff["point"] < 0 and sep:
+                    direction, verdict = "marginal_wins", (
+                        "MARGINAL CALIBRATION WINS (CI excludes 0) — the dominance claim does NOT "
+                        "hold in this cell")
+                else:
+                    direction, verdict = "indistinguishable", (
+                        "INDISTINGUISHABLE (CI includes 0) — no dominance either way; the "
+                        "representation lever is competitive here")
                 return {
                     "scope": label,
                     "best_marginal_cell": list(best_marg) if isinstance(best_marg, tuple) else [best_marg],
@@ -292,10 +338,8 @@ def representation_verdict(records, *, scores=REPR_SCORES, margin: float = FLATN
                     "worst_mondrian_cell": list(worst_mond) if isinstance(worst_mond, tuple) else [worst_mond],
                     "worst_mondrian_cov": float(wm_v.mean()),
                     "diff_worst_mondrian_minus_best_marginal": diff,
-                    "verdict": ("CALIBRATION LEVER DOMINATES (worst Mondrian beats best marginal, "
-                                "CI excludes 0)"
-                                if diff["point"] > 0 and diff.get("excludes_zero")
-                                else "representation lever competitive — NARROW THE TITLE CLAIM"),
+                    "direction": direction,
+                    "verdict": verdict,
                 }
 
             marg_cells, mond_cells = {}, {}
@@ -339,6 +383,71 @@ def representation_verdict(records, *, scores=REPR_SCORES, margin: float = FLATN
     return out
 
 
+# The grid module's write_csv has a FIXED column list built for the last-layer grid, and it drops
+# unknown keys silently. Routing representation records through it lost representation / head /
+# calibration / ft_seed / mean_group_cov -- i.e. every field needed to map a row back to its cell --
+# so a persisted run could not be re-analysed without re-reading the features. These columns are
+# the record's own identity plus the quantities the verdicts consume.
+REPR_CSV_COLS = ["dataset", "representation", "ft_seed", "head", "backbone", "calibration",
+                 "score", "alpha", "rho_cal", "rho_test", "split_seed", "n_eval",
+                 "worst_group_acc", "base_top1", "marginal_cov", "worst_group",
+                 "worst_group_cov", "mean_group_cov", "cov_range", "cov_gap",
+                 "n_cal_worst_group", "mean_set_size", "worst_group_set_size",
+                 "set_size_disparity", "div_wasserstein1", "div_ks_stat", "div_ks_pvalue",
+                 "rho_cal_realized", "rho_test_realized"]
+_REPR_INT = {"ft_seed", "split_seed", "worst_group", "n_cal_worst_group", "n_eval"}
+_REPR_STR = {"dataset", "representation", "head", "backbone", "calibration", "score"}
+
+
+def write_representation_csv(records, path: str) -> str:
+    """Persist representation records with every identifying field intact."""
+    import csv
+    missing = set(REPR_CSV_COLS) - set(records[0]) if records else set()
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=REPR_CSV_COLS, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(records)
+    if missing:                                  # loud, not silent: a dropped column is data loss
+        print(f"[warn] {path}: columns absent from the records and written blank: "
+              f"{sorted(missing)}")
+    return path
+
+
+def records_from_representation_csv(path: str) -> list:
+    """Read back what ``write_representation_csv`` wrote, restoring types."""
+    import csv
+    out = []
+    with open(path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            r = {}
+            for k, v in row.items():
+                if v == "" or v is None:
+                    r[k] = None
+                elif k in _REPR_STR:
+                    r[k] = v
+                elif k in _REPR_INT:
+                    r[k] = int(float(v))
+                else:
+                    r[k] = float(v)
+            out.append(r)
+    return out
+
+
+def reanalyze_representation(csv_path: str, *, md_path: str = "REPRESENTATION.md",
+                             scores=REPR_SCORES) -> dict:
+    """Recompute every verdict and rewrite the report from a saved CSV.
+
+    Pure re-analysis: no GPU, no fine-tuning, and no re-reading of the cached features (8 GB on
+    CelebA). This is the path to use whenever the analysis code changes but the runs have not.
+    """
+    records = records_from_representation_csv(csv_path)
+    present = sorted({r["dataset"] for r in records})
+    print(f"loaded {len(records)} records from {csv_path} | datasets: {present}")
+    out = _finish(records, scores)
+    write_representation_md(out, md_path)
+    return out
+
+
 def write_representation_md(out: dict, path: str = "REPRESENTATION.md") -> str:
     """Emit the representation-level report."""
     recs, V = out["records"], out["verdicts"]
@@ -360,6 +469,13 @@ def write_representation_md(out: dict, path: str = "REPRESENTATION.md") -> str:
         for dataset, d in sorted(man.items()):
             L.append(f"**{dataset}: {d['verdict']}**")
             L.append("")
+            if d.get("status") == "WEAK":
+                L.append(f"> The representation axis was barely moved on **{dataset}**: best gain "
+                         f"{d.get('best_gain', float('nan')):+.3f} across heads, but only "
+                         f"{d.get('primary_head_gain', float('nan')):+.3f} at the primary head "
+                         f"`{d.get('primary_head')}`. Read this dataset's primary-lever null as "
+                         f"weak evidence about representations, and say so in the write-up.")
+                L.append("")
             if d.get("per_head"):
                 L.append("| head | representation | eval wg acc | Δ vs " + d.get("reference", "erm")
                          + " [95% CI] | more robust |")
@@ -408,6 +524,9 @@ def write_representation_md(out: dict, path: str = "REPRESENTATION.md") -> str:
                 L.append("")
                 L.append("| head held fixed | best marginal | worst Mondrian | difference [CI] | verdict |")
                 L.append("|---|---|---|---|---|")
+                LABEL = {"calibration_dominates": "Mondrian dominates",
+                         "marginal_wins": "**marginal WINS**",
+                         "indistinguishable": "indistinguishable"}
                 for h, hv in sorted(lev["by_head"].items()):
                     if "best_marginal_cell" not in hv:
                         continue
@@ -416,7 +535,7 @@ def write_representation_md(out: dict, path: str = "REPRESENTATION.md") -> str:
                              f"({hv['best_marginal_cell'][0]}) | {hv['worst_mondrian_cov']:.3f} "
                              f"({hv['worst_mondrian_cell'][0]}) | {hd_['point']:+.3f} "
                              f"[{hd_['lo']:+.3f}, {hd_['hi']:+.3f}] | "
-                             f"{'dominates' if hd_['point'] > 0 and hd_.get('excludes_zero') else 'competitive'} |")
+                             f"{LABEL.get(hv.get('direction'), '?')} |")
                 L.append("")
             j = lev.get("joint")
             if j and "best_marginal_cell" in j:
@@ -425,9 +544,11 @@ def write_representation_md(out: dict, path: str = "REPRESENTATION.md") -> str:
                          f"over representation x head: best marginal `{j['best_marginal_cell']}` = "
                          f"{j['best_marginal_cov']:.3f} vs worst Mondrian "
                          f"`{j['worst_mondrian_cell']}` = {j['worst_mondrian_cov']:.3f}, "
-                         f"difference {jd['point']:+.3f} [{jd['lo']:+.3f}, {jd['hi']:+.3f}]. "
-                         f"This lets a robust **head** substitute for the representation, so it "
-                         f"tests a different question than the reviewers asked._")
+                         f"difference {jd['point']:+.3f} [{jd['lo']:+.3f}, {jd['hi']:+.3f}] "
+                         f"-> **{j.get('direction')}**. This lets a robust **head** substitute for "
+                         f"the representation, so it tests a different question than the reviewers "
+                         f"asked -- but where it reads `marginal_wins`, the unconditional dominance "
+                         f"claim fails and the paper must say so._")
                 L.append("")
         else:
             L.append(f"_{lev.get('note', lev['verdict'])}_")

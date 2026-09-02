@@ -181,11 +181,25 @@ def validate_representation():
     rigged_fail = [dict(r, worst_group_acc=(0.9 if r["representation"] == "erm" else 0.2))
                    for r in recs]
     check("a robust arm WORSE than the reference -> FAIL",
-          manipulation_check(rigged_fail)["synthetic"]["verdict"].startswith("FAIL"))
+          manipulation_check(rigged_fail)["synthetic"]["status"] == "FAIL")
     rigged_pass = [dict(r, worst_group_acc=(0.2 if r["representation"] == "erm" else 0.9))
                    for r in recs]
-    check("a robust arm clearly better -> PASS",
-          manipulation_check(rigged_pass)["synthetic"]["verdict"].startswith("PASS"))
+    check("a robust arm clearly better at the primary head -> PASS",
+          manipulation_check(rigged_pass)["synthetic"]["status"] == "PASS")
+    # The CelebA situation: a gain at the DFR head only, none at the head the primary lever uses.
+    # The old rule passed this, which let a near-identical pair of representations be compared.
+    def _celeba_like(r):
+        base = {("erm", "erm"): 0.41, ("erm", "groupdro"): 0.408, ("erm", "reweight"): 0.396,
+                ("dfr", "erm"): 0.86, ("dfr", "groupdro"): 0.879, ("dfr", "reweight"): 0.846}
+        return dict(r, worst_group_acc=base.get((r["head"], r["representation"]), 0.5))
+    weak = manipulation_check([_celeba_like(r) for r in recs])["synthetic"]
+    check("gain at a non-primary head only -> WEAK, not PASS", weak["status"] == "WEAK",
+          weak["verdict"][:70])
+    check("WEAK verdict names the primary-head gain that justifies it",
+          "primary head" in weak["verdict"] and abs(weak["primary_head_gain"]) < 0.01,
+          f"primary_head_gain={weak['primary_head_gain']:+.3f}")
+    check("a small-but-significant gain is flagged as barely moving the axis",
+          "barely moved" in weak["verdict"])
 
     print("\n[10] representation: report emitter")
     import tempfile, os
@@ -212,17 +226,21 @@ def validate_representation():
             out2.append(r2)
         return representation_verdict(out2, scores=("APS",))["synthetic/APS"]["levers"]
 
+    # Three outcomes must be distinguishable. Conflating the middle one with the third is exactly
+    # the bug that let CelebA print "competitive" for a CI-separated marginal WIN.
     narrow = _rig(marg=0.99, mond=0.60)
-    check("marginal-wins data -> NARROW THE TITLE", "NARROW" in narrow["verdict"],
-          narrow["verdict"])
+    check("marginal beats Mondrian (CI excludes 0) -> MARGINAL CALIBRATION WINS",
+          narrow["direction"] == "marginal_wins", narrow["verdict"][:60])
     dominate = _rig(marg=0.60, mond=0.89)
-    check("Mondrian-wins data -> CALIBRATION LEVER DOMINATES",
-          "DOMINATES" in dominate["verdict"], dominate["verdict"])
+    check("Mondrian beats marginal (CI excludes 0) -> calibration_dominates",
+          dominate["direction"] == "calibration_dominates", dominate["verdict"][:60])
     check("dominating verdict is backed by a CI that excludes zero",
           dominate["diff_worst_mondrian_minus_best_marginal"]["excludes_zero"])
     tie = _rig(marg=0.85, mond=0.85, jitter=0.05)
-    check("indistinguishable levers do NOT claim dominance", "NARROW" in tie["verdict"],
-          tie["verdict"])
+    check("overlapping levers -> indistinguishable, NOT a win for either side",
+          tie["direction"] == "indistinguishable", tie["verdict"][:60])
+    check("a marginal win is never reported as a mere tie",
+          narrow["direction"] != tie["direction"])
 
     print("\n[12] the two components of the sub-target level (real per-group counts)")
     from .stats import group_counts_at_rho
