@@ -156,12 +156,12 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
     torch.manual_seed(seed)
     np.random.seed(seed)
     if dev.type == "cuda":
-        # Every batch has identical shape here, so let cuDNN pick its best algorithms once instead
-        # of re-heuristing per call, and allow TF32 matmuls (Ada/Ampere). Both change throughput
-        # only, not the computation being expressed.
+        # Every batch has identical shape here, so let cuDNN pick its algorithms once rather than
+        # re-heuristic per call. This selects among mathematically equivalent kernels; it does not
+        # lower precision. TF32 is deliberately NOT enabled: under AMP the convolutions and matmuls
+        # already run in fp16, so TF32 would buy almost nothing while reducing precision for the
+        # remaining fp32 ops -- a change to the learned representation that is not in ``cache_key``.
         torch.backends.cudnn.benchmark = True
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
 
     tf = transforms.Compose([
         transforms.Resize(256), transforms.CenterCrop(image_size), transforms.ToTensor(),
