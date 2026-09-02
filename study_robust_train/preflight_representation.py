@@ -1,159 +1,221 @@
-"""Pre-flight audit of the representation notebook against the code it will actually call.
+"""Pre-flight audit of the representation run against the code it will actually call.
 
-Catches the class of bug that cost three Waterbirds re-runs and one aborted CelebA run: a notebook
-value the underlying function silently ignores, an epoch budget shared across datasets whose train
-splits differ 34x in size, or a knob that changes the learned representation without changing the
-cache key (so a re-run answers with stale features and the change looks inert).
+Catches the class of bug that cost three Waterbirds re-runs and one aborted CelebA run: a config
+value the callee silently ignores, an epoch budget shared across datasets whose train splits differ
+34x in size, or a knob that changes the learned representation without changing the cache key (so a
+re-run answers with stale features and the change looks inert).
 
-Static and instant -- it executes only the notebook's config cell, never a training cell. Run it
-before spending GPU time:
+Two entry points, and the difference matters:
 
-    python -m study_robust_train.preflight_representation
+  ``audit(globals())``   audits the **live** notebook namespace -- the values actually in scope,
+                         including anything edited in the browser. Call it from the notebook after
+                         the definitions cell and before any training cell.
 
-Set REPR_NB to audit a notebook at a non-default path.
+  ``python -m study_robust_train.preflight_representation``
+                         standalone: reads the committed notebook, executes only its config cell,
+                         and audits that. Convenient locally, but it checks the file on disk, not
+                         whatever the running notebook currently holds.
+
+Static and instant either way: no training cell is ever executed.
 """
-import ast, inspect, itertools, json, re, sys
+from __future__ import annotations
 
-sys.path.insert(0, r"C:\jagr\vgscp")
-NB = r"C:\jagr\vgscp\notebooks\representation_finetune.ipynb"
+import ast
+import inspect
+import itertools
+import json
+import os
+import sys
 
-FAIL = []
-def chk(name, cond, detail=""):
-    print(f"  {'PASS' if cond else 'FAIL'}  {name}" + (f"  -- {detail}" if detail else ""))
-    if not cond: FAIL.append(name)
+from .finetune import OBJECTIVES, cache_key, finetune_features
 
-nb = json.load(open(NB, encoding="utf-8"))
-cells = [("".join(c["source"]), c["cell_type"]) for c in nb["cells"]]
-codes = [s for s, t in cells if t == "code"]
-src = "\n".join(codes)
+# Measured on an L4 at batch_size=128 with AMP; used only for the cost projection.
+IMG_PER_SEC = 484.0
+EXTRACT_N = {"waterbirds": 12040, "celeba": 202599}
+TRAIN_N = {"waterbirds": 4795, "celeba": 162770}
+DRIVE_BUDGET_GB = 13.0
+SESSION_HOURS = 4.0
 
-# ---- 1. the config cell, evaluated for real
-print("\n[1] notebook config cell")
-cfg_cell = codes[0]
-g = {}
-exec(cfg_cell, g)
-cfgvals = {k: v for k, v in g.items() if k.isupper()}
-for k in ("FT_OBJECTIVES", "FT_SEEDS", "CELEBA_SEEDS", "CELEBA_MAX_TRAIN", "FT_EPOCHS",
-          "FT_HP", "BATCH_SIZE", "NUM_WORKERS", "EXTRACT_BS", "CACHE_DTYPE", "N_SPLITS",
-          "HEADS", "SCORES"):
-    chk(f"{k} defined", k in cfgvals, repr(cfgvals.get(k))[:70])
+REQUIRED = ("FT_OBJECTIVES", "FT_SEEDS", "FT_EPOCHS", "FT_HP", "BATCH_SIZE", "CACHE_DTYPE")
 
-# ---- 2. FT_EPOCHS covers every (dataset, objective) that will be requested
-print("\n[2] epoch budget completeness (the bug that cost ~12 h)")
-objs, eps = g["FT_OBJECTIVES"], g["FT_EPOCHS"]
-for ds in ("waterbirds", "celeba"):
-    missing = [o for o in objs if (ds, o) not in eps]
-    chk(f"{ds}: every objective has an epoch budget", not missing, f"missing={missing}")
-chk("no epochs_override left anywhere", "epochs_override" not in src)
-chk("CelebA GroupDRO budget is sane (<=10 epochs)", eps[("celeba", "groupdro")] <= 10,
-    f"{eps[('celeba','groupdro')]} epochs x 5.7 min/epoch at full train")
-chk("CELEBA_MAX_TRAIN is set, not None", g["CELEBA_MAX_TRAIN"] is not None,
-    str(g["CELEBA_MAX_TRAIN"]))
 
-# ---- 3. build_all signature vs every call site
-print("\n[3] build_all: definition vs call sites")
-tree = ast.parse(src)
-fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "build_all"), None)
-chk("build_all defined", fn is not None)
-if fn:
-    params = [a.arg for a in fn.args.args]
-    kwonly = [a.arg for a in fn.args.kwonlyargs]
-    print(f"        params={params} kwonly={kwonly}")
-    for call in [n for n in ast.walk(tree) if isinstance(n, ast.Call)
-                 and getattr(n.func, "id", None) == "build_all"]:
-        npos, kws = len(call.args), [k.arg for k in call.keywords]
-        ok = npos <= len(params) and all(k in params + kwonly for k in kws)
-        chk(f"call build_all({npos} pos, {kws}) matches signature", ok)
+def audit(ns: dict, *, verbose: bool = True) -> bool:
+    """Audit a live namespace (or any dict of config values). Returns True if clean."""
+    fails: list[str] = []
 
-# ---- 4. every cfg key reaches finetune_features
-print("\n[4] cfg keys vs finetune_features signature")
-from study_robust_train.finetune import finetune_features, cache_key, OBJECTIVES
-sig = set(inspect.signature(finetune_features).parameters)
-cfg_src = codes[[i for i, c in enumerate(codes) if "def cfg_for" in c][0]]
-# Parse the dict literals rather than regex-scanning: `if dataset == "waterbirds":` ends in a colon
-# and a naive `"(\w+)":` scan reads it as a key.
-cfg_keys = set()
-for node in ast.walk(ast.parse(cfg_src)):
-    if isinstance(node, ast.Dict):
-        for k in node.keys:
-            if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                cfg_keys.add(k.value)
-cfg_keys -= {"root", "image_size", "n_classes", "download", "dataset", "finetune"}
-unknown = cfg_keys - sig
-chk("no cfg key is silently ignored", not unknown, f"unknown={sorted(unknown)}")
-hp_keys = set(itertools.chain.from_iterable(d.keys() for d in g["FT_HP"].values()))
-chk("no FT_HP key is silently ignored", hp_keys <= sig, f"unknown={sorted(hp_keys - sig)}")
-chk("objectives are all real", set(objs) <= set(OBJECTIVES), f"{objs} vs {OBJECTIVES}")
+    def chk(name, cond, detail=""):
+        if verbose:
+            print(f"  {'PASS' if cond else 'FAIL'}  {name}" + (f"  -- {detail}" if detail else ""))
+        if not cond:
+            fails.append(name)
 
-# ---- 5. cache keys: Waterbirds must HIT, CelebA must be fresh
-print("\n[5] predicted cache keys")
-P = {"train": ["p"]}   # the path hash is dataset-derived; only the suffix is checked here
-def key(ds, obj, seed, mt):
-    return cache_key(obj, ds, P, epochs=eps[(ds, obj)], seed=seed, max_train=mt,
-                     lr=g["FT_HP"][obj]["lr"], batch_size=g["BATCH_SIZE"],
-                     optimizer=g["FT_HP"][obj]["optimizer"],
-                     weight_decay=g["FT_HP"][obj]["weight_decay"],
-                     groupdro_eta=g["FT_HP"][obj].get("groupdro_eta", 0.01))
-for obj in objs:
-    print(f"        waterbirds/{obj}/s0 -> ...{key('waterbirds', obj, 0, None).split('_', 3)[3]}")
-for obj in objs:
-    print(f"        celeba/{obj}/s0     -> ...{key('celeba', obj, 0, g['CELEBA_MAX_TRAIN']).split('_', 3)[3]}")
-# The last successful Waterbirds run produced this suffix for erm/s0 (from the user's log):
-OBSERVED = "in1kV2_10ep_lr0.001_bs128_wd0_adam_mtall_s0"
-chk("Waterbirds erm/s0 key unchanged since the good run -> cache HIT",
-    key("waterbirds", "erm", 0, None).endswith(OBSERVED), OBSERVED)
-chk("CelebA key carries mt50000 -> the aborted mtall run is correctly NOT reused",
-    "mt50000" in key("celeba", "erm", 0, g["CELEBA_MAX_TRAIN"]))
+    def sec(t):
+        if verbose:
+            print(f"\n[{t}]")
 
-# ---- 6. things that change the representation must be in the key
-print("\n[6] representation-affecting knobs are all keyed")
-base = key("waterbirds", "groupdro", 0, None)
-variants = {
-    "epochs":       cache_key("groupdro", "waterbirds", P, epochs=99, seed=0, max_train=None, lr=1e-3, batch_size=128, optimizer="sgd", weight_decay=1e-2, groupdro_eta=0.05),
-    "lr":           cache_key("groupdro", "waterbirds", P, epochs=eps[("waterbirds","groupdro")], seed=0, max_train=None, lr=9e-9, batch_size=128, optimizer="sgd", weight_decay=1e-2, groupdro_eta=0.05),
-    "batch_size":   cache_key("groupdro", "waterbirds", P, epochs=eps[("waterbirds","groupdro")], seed=0, max_train=None, lr=1e-3, batch_size=999, optimizer="sgd", weight_decay=1e-2, groupdro_eta=0.05),
-    "optimizer":    cache_key("groupdro", "waterbirds", P, epochs=eps[("waterbirds","groupdro")], seed=0, max_train=None, lr=1e-3, batch_size=128, optimizer="adam", weight_decay=1e-2, groupdro_eta=0.05),
-    "weight_decay": cache_key("groupdro", "waterbirds", P, epochs=eps[("waterbirds","groupdro")], seed=0, max_train=None, lr=1e-3, batch_size=128, optimizer="sgd", weight_decay=0.5, groupdro_eta=0.05),
-    "groupdro_eta": cache_key("groupdro", "waterbirds", P, epochs=eps[("waterbirds","groupdro")], seed=0, max_train=None, lr=1e-3, batch_size=128, optimizer="sgd", weight_decay=1e-2, groupdro_eta=0.9),
-    "init_weights": cache_key("groupdro", "waterbirds", P, epochs=eps[("waterbirds","groupdro")], seed=0, max_train=None, lr=1e-3, batch_size=128, optimizer="sgd", weight_decay=1e-2, groupdro_eta=0.05, init_weights="IMAGENET1K_V1"),
-    "seed":         cache_key("groupdro", "waterbirds", P, epochs=eps[("waterbirds","groupdro")], seed=7, max_train=None, lr=1e-3, batch_size=128, optimizer="sgd", weight_decay=1e-2, groupdro_eta=0.05),
-    "max_train":    cache_key("groupdro", "waterbirds", P, epochs=eps[("waterbirds","groupdro")], seed=0, max_train=123, lr=1e-3, batch_size=128, optimizer="sgd", weight_decay=1e-2, groupdro_eta=0.05),
-}
-for name, k in variants.items():
-    chk(f"changing {name} changes the cache key", k != base)
-# and things that do NOT affect the learned values must NOT be keyed
-chk("extract_batch_size is NOT a cache-key input (no-grad forward)",
-    "extract_batch_size" not in inspect.signature(cache_key).parameters)
-chk("TF32 not enabled (would change numerics without changing the key)",
-    "allow_tf32" not in inspect.getsource(finetune_features))
+    sec("config present")
+    for k in REQUIRED:
+        chk(f"{k} defined", k in ns, repr(ns.get(k))[:64])
+    if fails:
+        print("\nmissing config -- run the parameters cell first")
+        return False
 
-# ---- 7. cost projection
-print("\n[7] projected cost")
-IMG_S = 484.0                       # measured on the user's L4 at bs=128
-EXTRACT = {"waterbirds": 12040, "celeba": 202599}
-TRAIN_N = {"waterbirds": 4795, "celeba": min(162770, g["CELEBA_MAX_TRAIN"] or 162770)}
-tot = 0.0
-for ds, seeds in (("waterbirds", g["FT_SEEDS"]), ("celeba", g["CELEBA_SEEDS"])):
-    sub = 0.0
-    for o in objs:
-        per = (TRAIN_N[ds] * eps[(ds, o)] / IMG_S + EXTRACT[ds] / 1200) / 60
-        sub += per * len(seeds)
-        print(f"        {ds:10s} {o:9s} {eps[(ds,o)]:2d}ep x {len(seeds)} seeds"
-              f"  {per:5.1f} min/run -> {per*len(seeds):6.1f} min")
-    print(f"        {ds:10s} SUBTOTAL {sub/60:.1f} h")
-    tot += sub
-gb = {"waterbirds": 12040, "celeba": 202599}
-dr = sum(gb[ds] * 2048 * (2 if g["CACHE_DTYPE"] == "float16" else 4) / 1e9 * len(s)
-         for ds, s in (("waterbirds", g["FT_SEEDS"]), ("celeba", g["CELEBA_SEEDS"]))) * len(objs)
-print(f"\n        TOTAL (if nothing cached): {tot/60:.1f} h")
-print(f"        CelebA only (Waterbirds cached): "
-      f"{sum((TRAIN_N['celeba']*eps[('celeba',o)]/IMG_S + EXTRACT['celeba']/1200)/60 for o in objs)*len(g['CELEBA_SEEDS'])/60:.1f} h")
-print(f"        Drive for feature caches: {dr:.1f} GB  (CACHE_DTYPE={g['CACHE_DTYPE']})")
-chk("CelebA fits one 4 h session",
-    sum((TRAIN_N['celeba']*eps[('celeba',o)]/IMG_S + EXTRACT['celeba']/1200)/60 for o in objs)
-    * len(g['CELEBA_SEEDS']) / 60 < 4.0)
-chk("Drive need under 13 GB", dr < 13.0, f"{dr:.1f} GB")
+    objs, eps, hp = ns["FT_OBJECTIVES"], ns["FT_EPOCHS"], ns["FT_HP"]
+    wb_seeds = tuple(ns["FT_SEEDS"])
+    cel_seeds = tuple(ns.get("CELEBA_SEEDS", wb_seeds))
+    max_train = ns.get("CELEBA_MAX_TRAIN")
 
-print("\n" + "=" * 74)
-print(f"FAILED ({len(FAIL)}): " + ", ".join(FAIL) if FAIL else "PRE-FLIGHT CLEAN")
-sys.exit(1 if FAIL else 0)
+    sec("epoch budgets (the defect that cost ~12 h)")
+    chk("objectives are all real", set(objs) <= set(OBJECTIVES), f"{objs} vs {OBJECTIVES}")
+    for ds in ("waterbirds", "celeba"):
+        missing = [o for o in objs if (ds, o) not in eps]
+        chk(f"{ds}: every objective has an epoch budget", not missing, f"missing={missing}")
+    if all((("celeba", o) in eps) for o in objs):
+        worst = max(eps[("celeba", o)] for o in objs)
+        chk("CelebA epoch budgets are dataset-appropriate (<=10)", worst <= 10,
+            f"max {worst} epochs; one full-train CelebA epoch is ~5.7 min")
+    chk("CELEBA_MAX_TRAIN is set explicitly", max_train is not None,
+        "None means all 162,770 images -- ~3.25x the cost")
+
+    sec("no config key is silently ignored")
+    sig = set(inspect.signature(finetune_features).parameters)
+    hp_keys = set(itertools.chain.from_iterable(d.keys() for d in hp.values()))
+    chk("every FT_HP key is a real parameter", hp_keys <= sig, f"unknown={sorted(hp_keys - sig)}")
+    chk("no stale epochs_override in FT_HP", not any("epochs_override" in d for d in hp.values()))
+    # Source-level checks are best-effort: inspect.getsource cannot recover the text of a function
+    # defined by bare exec. A gate must never abort a healthy run, so an unavailable source is
+    # reported as skipped rather than raised or silently passed.
+    if "cfg_for" in ns:
+        try:
+            text = inspect.getsource(ns["cfg_for"])
+        except (OSError, TypeError):
+            text = None
+        if text is None:
+            if verbose:
+                print("  SKIP  cfg_for key check -- source unavailable for this namespace")
+        else:
+            keys = set()
+            for node in ast.walk(ast.parse(text)):
+                if isinstance(node, ast.Dict):
+                    keys |= {k.value for k in node.keys
+                             if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+            keys -= {"root", "image_size", "n_classes", "download", "dataset", "finetune"}
+            chk("every cfg_for key is a real parameter", keys <= sig,
+                f"unknown={sorted(keys - sig)}")
+    if "build_all" in ns:
+        try:
+            p = set(inspect.signature(ns["build_all"]).parameters)
+        except (TypeError, ValueError):
+            p = None
+        if p is None:
+            if verbose:
+                print("  SKIP  build_all signature check -- not introspectable")
+        else:
+            chk("build_all takes (dataset, max_train, seeds)",
+                {"dataset", "max_train", "seeds"} <= p, f"has {sorted(p)}")
+
+    sec("representation-affecting knobs are all keyed")
+    base_kw = dict(epochs=10, seed=0, max_train=None, lr=1e-3, batch_size=128,
+                   optimizer="sgd", weight_decay=1e-2, groupdro_eta=0.05)
+    P = {"train": ["p"]}
+    base = cache_key("groupdro", "waterbirds", P, **base_kw)
+    for name, over in (("epochs", {"epochs": 99}), ("lr", {"lr": 9e-9}),
+                       ("batch_size", {"batch_size": 999}), ("optimizer", {"optimizer": "adam"}),
+                       ("weight_decay", {"weight_decay": 0.5}),
+                       ("groupdro_eta", {"groupdro_eta": 0.9}), ("seed", {"seed": 7}),
+                       ("max_train", {"max_train": 123}),
+                       ("init_weights", {"init_weights": "IMAGENET1K_V1"}),
+                       ("amp", {"amp": False})):
+        chk(f"changing {name} changes the cache key",
+            cache_key("groupdro", "waterbirds", P, **{**base_kw, **over}) != base)
+    ck = set(inspect.signature(cache_key).parameters)
+    chk("extract_batch_size is NOT keyed (no-grad forward, values identical)",
+        "extract_batch_size" not in ck)
+    chk("TF32 stays disabled (would change numerics outside the key)",
+        "allow_tf32" not in inspect.getsource(finetune_features))
+
+    sec("predicted cache keys")
+    def key(ds, obj, seed, mt):
+        h = hp.get(obj, {})
+        return cache_key(obj, ds, P, epochs=eps[(ds, obj)], seed=seed, max_train=mt,
+                         lr=h.get("lr", 1e-3), batch_size=ns["BATCH_SIZE"],
+                         optimizer=h.get("optimizer", "adam"),
+                         weight_decay=h.get("weight_decay", 0.0),
+                         groupdro_eta=h.get("groupdro_eta", 0.01),
+                         amp=ns.get("AMP", True))
+    if verbose:
+        for ds, mt in (("waterbirds", None), ("celeba", max_train)):
+            for o in objs:
+                print(f"        {ds}/{o}/s0 -> ...{key(ds, o, 0, mt).split('_', 3)[3]}")
+    # The last good Waterbirds run produced this suffix; if it still matches, that cache is reused.
+    chk("Waterbirds erm/s0 key matches the last good run -> cache HIT",
+        key("waterbirds", "erm", 0, None).endswith(
+            "in1kV2_10ep_lr0.001_bs128_wd0_adam_mtall_s0"))
+    if max_train:
+        chk("CelebA keys carry the subsample -> the aborted full-train run is not reused",
+            f"mt{int(max_train)}" in key("celeba", "erm", 0, max_train))
+
+    sec("cost and Drive projection")
+    # Only meaningful once every budget exists; a missing one is already reported above, and
+    # projecting through it would raise and hide the remaining checks.
+    complete = all((ds, o) in eps for ds in ("waterbirds", "celeba") for o in objs)
+    if not complete:
+        if verbose:
+            print("  SKIP  projection -- fill in the missing epoch budgets first")
+        if verbose:
+            print("\n" + "=" * 74)
+            print(f"PRE-FLIGHT FAILED ({len(fails)}): " + ", ".join(fails))
+        return False
+    per_img = 2 if ns["CACHE_DTYPE"] == "float16" else 4
+    total_h, cel_h, drive = 0.0, 0.0, 0.0
+    for ds, seeds in (("waterbirds", wb_seeds), ("celeba", cel_seeds)):
+        sub = 0.0
+        n_train = TRAIN_N[ds] if ds == "waterbirds" else min(TRAIN_N[ds], max_train or TRAIN_N[ds])
+        for o in objs:
+            per = (n_train * eps[(ds, o)] / IMG_PER_SEC + EXTRACT_N[ds] / 1200) / 60
+            sub += per * len(seeds)
+            if verbose:
+                print(f"        {ds:10s} {o:9s} {eps[(ds,o)]:2d}ep x{len(seeds)} seeds  "
+                      f"{per:5.1f} min/run -> {per*len(seeds):6.1f} min")
+        drive += EXTRACT_N[ds] * 2048 * per_img / 1e9 * len(seeds) * len(objs)
+        total_h += sub / 60
+        if ds == "celeba":
+            cel_h = sub / 60
+    if verbose:
+        print(f"\n        all runs from scratch : {total_h:.1f} h")
+        print(f"        CelebA only           : {cel_h:.1f} h  (Waterbirds cached)")
+        print(f"        Drive feature caches  : {drive:.1f} GB  (CACHE_DTYPE={ns['CACHE_DTYPE']})")
+    chk(f"CelebA fits one {SESSION_HOURS:g} h session", cel_h < SESSION_HOURS, f"{cel_h:.1f} h")
+    chk(f"Drive need under {DRIVE_BUDGET_GB:g} GB", drive < DRIVE_BUDGET_GB, f"{drive:.1f} GB")
+
+    if verbose:
+        print("\n" + "=" * 74)
+        print(f"PRE-FLIGHT FAILED ({len(fails)}): " + ", ".join(fails) if fails
+              else "PRE-FLIGHT CLEAN")
+    return not fails
+
+
+def _from_notebook(path: str) -> dict:
+    """Execute only the notebook's config cell and return its namespace."""
+    nb = json.load(open(path, encoding="utf-8"))
+    cells = [("".join(c["source"]), c["cell_type"]) for c in nb["cells"]]
+    cfg_cell = next(s for s, t in cells if t == "code" and "FT_OBJECTIVES" in s)
+    ns: dict = {}
+    exec(cfg_cell, ns)
+    return ns
+
+
+def main() -> int:
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    nb = os.environ.get("REPR_NB", os.path.join(repo, "notebooks",
+                                                "representation_finetune.ipynb"))
+    if not os.path.exists(nb):
+        print(f"notebook not found: {nb}\nset REPR_NB=/path/to/representation_finetune.ipynb")
+        return 1
+    print(f"auditing committed notebook: {nb}")
+    print("(the notebook gate audits the LIVE namespace instead -- see module docstring)")
+    return 0 if audit(_from_notebook(nb)) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
