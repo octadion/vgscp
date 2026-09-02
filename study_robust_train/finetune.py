@@ -51,6 +51,33 @@ def cache_key(objective: str, tag: str, paths_by_split: dict, *, epochs: int, se
             f"_mt{mt}_s{seed}").replace("/", "-")
 
 
+def _save_checkpoint(torch, payload: dict, path: str, *, retries: int = 3) -> bool:
+    """Write a checkpoint atomically, tolerating a flaky Google Drive FUSE mount.
+
+    Colab's Drive mount intermittently fails mid-write on large files ("A Google Drive error has
+    occurred"), which with a plain ``torch.save`` leaves a truncated file that then poisons the next
+    resume. Writing to a sibling temp file and renaming means the destination is either the previous
+    good checkpoint or the new one, never a half-written mix. A failure here is logged and skipped
+    rather than raised: losing a checkpoint costs re-running some epochs, but aborting loses the
+    whole run.
+    """
+    tmp = path + ".tmp"
+    for attempt in range(1, retries + 1):
+        try:
+            torch.save(payload, tmp)
+            os.replace(tmp, path)                    # atomic within a filesystem
+            return True
+        except Exception as e:
+            print(f"[ckpt] write failed (attempt {attempt}/{retries}): {e}", flush=True)
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
+    print(f"[ckpt] giving up on {path}; training continues without a resume point", flush=True)
+    return False
+
+
 def _group_weights(groups: np.ndarray) -> np.ndarray:
     """Per-sample sampling weight = 1 / (count of its group) -> group-balanced batches."""
     groups = np.asarray(groups)
@@ -66,7 +93,8 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
                       max_train=None, groupdro_eta: float = 0.01,
                       optimizer: str = "adam", train_split: str = "train",
                       cache_dir: str = "results/cache_finetune", ckpt_dir=None,
-                      num_workers: int = 8, amp: bool = True, log_every: int = 1) -> dict:
+                      num_workers: int = 8, amp: bool = True, log_every: int = 1,
+                      ckpt_every: int = 1, cache_dtype: str = "float32") -> dict:
     """Fine-tune ResNet-50 end-to-end under ``objective`` and return penultimate features.
 
     Resumable: after every epoch a checkpoint (model/optimizer/scaler/GroupDRO ``q``/epoch) is
@@ -81,9 +109,15 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, key + ".npz")
     if os.path.exists(cache_path):
-        z = np.load(cache_path)
-        print(f"[ft-{objective} {tag} s{seed}] cache hit -> {cache_path}")
-        return {sp: z[sp] for sp in z.files}
+        try:                                    # a Drive-truncated .npz must not pass as a hit
+            z = np.load(cache_path)
+            feats = {sp: np.asarray(z[sp], dtype=np.float32) for sp in z.files}
+            if not feats or any(v.size == 0 for v in feats.values()):
+                raise ValueError("cached arrays are empty")
+            print(f"[ft-{objective} {tag} s{seed}] cache hit -> {cache_path}")
+            return feats
+        except Exception as e:
+            print(f"[ft-{objective} {tag} s{seed}] cache unreadable ({e}); recomputing", flush=True)
 
     import torch
     import torch.nn as nn
@@ -217,8 +251,10 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
                 if m.any():
                     g_correct[j] += float(ok[m].sum()); g_seen[j] += int(m.sum())
 
-        torch.save({"model": net.state_dict(), "opt": opt.state_dict(),
-                    "scaler": scaler.state_dict(), "q": q.tolist(), "epoch": ep + 1}, ckpt_path)
+        if (ep + 1) % ckpt_every == 0 or (ep + 1) == epochs:
+            _save_checkpoint(torch, {"model": net.state_dict(), "opt": opt.state_dict(),
+                                     "scaler": scaler.state_dict(), "q": q.tolist(),
+                                     "epoch": ep + 1}, ckpt_path)
         if (ep + 1) % log_every == 0:
             gacc = np.divide(g_correct, np.maximum(g_seen, 1))
             wg = float(gacc[g_seen > 0].min()) if (g_seen > 0).any() else float("nan")
@@ -241,7 +277,17 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
             out[sp] = l2_normalize(np.concatenate(feats, axis=0))
             print(f"[ft-{objective} {tag} s{seed}] extracted {sp}: {out[sp].shape}")
 
-    np.savez(cache_path, **out)
+    # Same atomic-write discipline for the payload that actually matters: a truncated .npz would
+    # register as a cache hit on the next run and silently feed corrupt features into the analysis.
+    # ``cache_dtype="float16"`` halves the stored size, which matters on CelebA: at 2048-d and
+    # ~192k samples a run is 1.6 GB in float32, and nine runs would exhaust a 15 GB Drive on their
+    # own. Features are L2-normalised (values ~0.02), so float16's ~1e-3 relative precision is well
+    # below the noise the downstream linear head and conformal quantiles already carry. Arrays are
+    # always returned in float32 regardless, so only the on-disk copy is reduced.
+    to_store = {k: v.astype(cache_dtype, copy=False) for k, v in out.items()}
+    tmp_npz = cache_path + ".tmp.npz"
+    np.savez(tmp_npz, **to_store)
+    os.replace(tmp_npz, cache_path)
     with open(os.path.join(cache_dir, key + ".meta.json"), "w", encoding="utf-8") as fh:
         json.dump({"objective": objective, "tag": tag, "epochs": epochs, "lr": lr,
                    "weight_decay": weight_decay, "batch_size": batch_size, "seed": seed,
