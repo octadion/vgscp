@@ -73,6 +73,39 @@ def build_repr_griddata(dataset: str, objective: str, cfg: dict, *, ft_seed: int
     )
 
 
+def records_for(gd: GridData, key: tuple, *, heads=REPR_HEADS, scores=REPR_SCORES,
+                calibrations=REPR_CALIBRATIONS, head_seed=0, n_splits=10, alpha=0.1,
+                rho_cal=0.95, rho_test=0.95, method_hp=None) -> list:
+    """All records for ONE fine-tuned representation. Holds no reference to ``gd`` on return, so
+    the caller can free a 1.5 GB CelebA GridData before building the next one."""
+    method_hp = method_hp or {}
+    dataset, repr_name, ft_seed = key
+    Xev, yev, gev = gd.eval_domain
+    out = []
+    for head in heads:
+        fitted = fit_method(head, gd.train, gd.reweight, seed=head_seed,
+                            **method_hp.get(head, {}))
+        probs = head_probs(fitted, Xev, gd.n_classes)
+        _, wg_acc = metrics.worst_group_accuracy(np.argmax(probs, axis=1), yev, gev)
+        for score in scores:
+            for calibration in calibrations:
+                for sp in range(n_splits):
+                    rec = evaluate(probs, yev, gev, score=score, alpha=alpha,
+                                   rho_cal=rho_cal, rho_test=rho_test, split_seed=sp,
+                                   calibration=calibration)
+                    rec.update({"dataset": dataset, "representation": repr_name,
+                                "ft_seed": int(ft_seed), "head": head,
+                                "backbone": gd.backbone, "worst_group_acc": float(wg_acc)})
+                    out.append(rec)
+    return out
+
+
+def _finish(records, scores):
+    return {"records": records,
+            "verdicts": representation_verdict(records, scores=scores),
+            "manipulation": manipulation_check(records)}
+
+
 def run_representation_experiment(data_by_repr: dict, *, heads=REPR_HEADS, scores=REPR_SCORES,
                                   calibrations=REPR_CALIBRATIONS, head_seeds=(0,), n_splits=10,
                                   alpha=0.1, rho_cal=0.95, rho_test=0.95, method_hp=None) -> dict:
@@ -80,29 +113,54 @@ def run_representation_experiment(data_by_repr: dict, *, heads=REPR_HEADS, score
 
     ``data_by_repr`` maps ``(dataset, repr_name, ft_seed) -> GridData``. The fine-tune seed is the
     clustering unit for every interval downstream, so it is carried on every record.
+
+    This form holds every GridData in memory at once. That is fine for Waterbirds (~0.1 GB each)
+    but not for CelebA, where nine runs are ~14 GB -- use ``run_representation_streaming`` there.
     """
-    method_hp = method_hp or {}
     records = []
-    for (dataset, repr_name, ft_seed), gd in data_by_repr.items():
-        Xev, yev, gev = gd.eval_domain
-        for head in heads:
-            fitted = fit_method(head, gd.train, gd.reweight, seed=head_seeds[0],
-                                **method_hp.get(head, {}))
-            probs = head_probs(fitted, Xev, gd.n_classes)
-            _, wg_acc = metrics.worst_group_accuracy(np.argmax(probs, axis=1), yev, gev)
-            for score in scores:
-                for calibration in calibrations:
-                    for sp in range(n_splits):
-                        rec = evaluate(probs, yev, gev, score=score, alpha=alpha,
-                                       rho_cal=rho_cal, rho_test=rho_test, split_seed=sp,
-                                       calibration=calibration)
-                        rec.update({"dataset": dataset, "representation": repr_name,
-                                    "ft_seed": int(ft_seed), "head": head,
-                                    "backbone": gd.backbone, "worst_group_acc": float(wg_acc)})
-                        records.append(rec)
-    return {"records": records,
-            "verdicts": representation_verdict(records, scores=scores),
-            "manipulation": manipulation_check(records)}
+    for key, gd in data_by_repr.items():
+        records += records_for(gd, key, heads=heads, scores=scores, calibrations=calibrations,
+                               head_seed=head_seeds[0], n_splits=n_splits, alpha=alpha,
+                               rho_cal=rho_cal, rho_test=rho_test, method_hp=method_hp)
+    return _finish(records, scores)
+
+
+def run_representation_streaming(keys, build_fn, *, heads=REPR_HEADS, scores=REPR_SCORES,
+                                 calibrations=REPR_CALIBRATIONS, head_seeds=(0,), n_splits=10,
+                                 alpha=0.1, rho_cal=0.95, rho_test=0.95, method_hp=None,
+                                 prior_records=(), verbose=True) -> dict:
+    """Same experiment, but building and discarding one representation at a time.
+
+    ``keys`` is a sequence of ``(dataset, repr_name, ft_seed)``; ``build_fn(*key)`` returns its
+    GridData. Peak memory is one GridData rather than all of them, which is what makes CelebA
+    feasible: nine CelebA GridData held together are ~14 GB, and the features are never needed
+    again once their records exist.
+
+    ``prior_records`` lets an earlier dataset's records (e.g. Waterbirds) be folded in without
+    holding that dataset's features too. A build failure is logged and skipped, not raised, so one
+    bad arm does not discard the runs that already succeeded.
+    """
+    import gc
+
+    records = list(prior_records)
+    failed = []
+    for key in keys:
+        try:
+            gd = build_fn(*key)
+        except Exception as e:                     # noqa: BLE001 - one arm must not sink the run
+            failed.append((key, repr(e)))
+            print(f"[FAIL] {key}: {e}", flush=True)
+            continue
+        records += records_for(gd, key, heads=heads, scores=scores, calibrations=calibrations,
+                               head_seed=head_seeds[0], n_splits=n_splits, alpha=alpha,
+                               rho_cal=rho_cal, rho_test=rho_test, method_hp=method_hp)
+        del gd
+        gc.collect()
+        if verbose:
+            print(f"[records] {key}: {len(records)} total", flush=True)
+    out = _finish(records, scores)
+    out["failed"] = failed
+    return out
 
 
 def _sel(records, **eq):

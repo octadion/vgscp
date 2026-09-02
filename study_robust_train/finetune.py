@@ -46,6 +46,11 @@ from .features import l2_normalize
 
 OBJECTIVES = ("erm", "groupdro", "reweight")
 
+# Host-RAM budget for decoded images sitting in DataLoader queues during feature extraction.
+# The worker count is derived from this rather than inherited from training, because extraction
+# runs at a larger batch and the product batch x workers x prefetch is what actually reserves RAM.
+EXTRACT_INFLIGHT_BYTES = 1_500_000_000
+
 
 def _paths_hash(paths) -> str:
     h = sha1()
@@ -124,7 +129,7 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
                       cache_dir: str = "results/cache_finetune", ckpt_dir=None,
                       num_workers: int = 8, amp: bool = True, log_every: int = 1,
                       ckpt_every: int = 1, cache_dtype: str = "float32",
-                      extract_batch_size=None) -> dict:
+                      extract_batch_size=None, extract_inflight_bytes=None) -> dict:
     """Fine-tune ResNet-50 end-to-end under ``objective`` and return penultimate features.
 
     Resumable: after every epoch a checkpoint (model/optimizer/scaler/GroupDRO ``q``/epoch) is
@@ -160,13 +165,18 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
     dev = torch.device(device if torch.cuda.is_available() else "cpu")
     torch.manual_seed(seed)
     np.random.seed(seed)
+    # cudnn.benchmark and TF32 are both left OFF, deliberately, and this costs throughput.
+    #
+    # Neither is a hyperparameter, so neither belongs in ``cache_key`` -- which is exactly why both
+    # are dangerous here: they change kernel selection (benchmark) or precision (TF32), so arms
+    # computed under different settings are not numerically comparable, and nothing in the cache
+    # would reveal it. The Waterbirds arms were all computed before either existed, so enabling
+    # them for CelebA would leave the two datasets processed differently for a ~10% speedup.
+    # Uniform processing across every arm is worth more than that.
     if dev.type == "cuda":
-        # Every batch has identical shape here, so let cuDNN pick its algorithms once rather than
-        # re-heuristic per call. This selects among mathematically equivalent kernels; it does not
-        # lower precision. TF32 is deliberately NOT enabled: under AMP the convolutions and matmuls
-        # already run in fp16, so TF32 would buy almost nothing while reducing precision for the
-        # remaining fp32 ops -- a change to the learned representation that is not in ``cache_key``.
-        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
 
     tf = transforms.Compose([
         transforms.Resize(256), transforms.CenterCrop(image_size), transforms.ToTensor(),
@@ -315,22 +325,46 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
 
     # ---- extract penultimate features for every split
     feat_net = torch.nn.Sequential(*list(net.children())[:-1]).to(dev).eval()
-    # Extraction is a no-grad forward pass, so it holds no activations for backward and can use a
-    # much larger batch than training. This does not affect the extracted values at all -- unlike
-    # the training batch size, which is part of ``cache_key`` because it changes what is learned.
-    ebs = int(extract_batch_size or 4 * batch_size)
+    # Extraction is a no-grad forward pass in eval mode, so BatchNorm uses running statistics and
+    # the per-sample output is MATHEMATICALLY independent of batch composition -- which is why
+    # ``extract_batch_size`` is not part of ``cache_key``. It is not bit-identical across batch
+    # sizes though: with cudnn.benchmark the conv algorithm is selected per batch shape, so rounding
+    # differs at ~1e-3 relative under AMP. That is orders below the seed-to-seed spread we report,
+    # but arms cached at different extraction batches are not byte-comparable.
+    ebs = int(extract_batch_size or batch_size)
+    # A DataLoader holds batch_size x num_workers x prefetch_factor decoded images in host RAM.
+    # At 224x224x3 float32 that is 0.57 MB each, so bs=512 with 16 workers reserves ~9 GB before a
+    # single feature is written -- which is how a CelebA run exhausted RAM mid-extraction. Derive
+    # the worker count from an explicit in-flight budget instead of inheriting the training value.
+    img_bytes = 3 * image_size * image_size * 4
+    budget = int(extract_inflight_bytes or EXTRACT_INFLIGHT_BYTES)
+    ext_workers = max(2, min(num_workers, int(budget / (ebs * 2 * img_bytes))))
+    print(f"[ft-{objective} {tag} s{seed}] extracting at bs={ebs}, workers={ext_workers} "
+          f"(~{ebs * ext_workers * 2 * img_bytes / 2**30:.1f} GB in flight)", flush=True)
     out = {}
     with torch.no_grad(), torch.amp.autocast("cuda", enabled=use_amp):
         for sp, paths in paths_by_split.items():
             dl = DataLoader(_DS(paths, y_by_split[sp]), batch_size=ebs, shuffle=False,
-                            num_workers=num_workers, pin_memory=True)
-            feats = []
+                            num_workers=ext_workers, pin_memory=True)
+            n = len(paths)
+            # Write straight into one preallocated array. Collecting chunks in a list and then
+            # concatenating held three copies of the split at once (list + concat + normalised),
+            # which is 3.7 GB for CelebA's train split alone.
+            buf = None
+            i = 0
             for xb, _, _ in dl:
                 xb = xb.to(dev, non_blocking=True, memory_format=torch.channels_last)
                 f = feat_net(xb).squeeze(-1).squeeze(-1).float().cpu().numpy()
-                feats.append(f)
-            out[sp] = l2_normalize(np.concatenate(feats, axis=0))
-            print(f"[ft-{objective} {tag} s{seed}] extracted {sp}: {out[sp].shape}")
+                if buf is None:
+                    buf = np.empty((n, f.shape[1]), dtype=np.float32)
+                buf[i:i + f.shape[0]] = f
+                i += f.shape[0]
+            assert buf is not None and i == n, f"extracted {i} of {n} rows for split {sp!r}"
+            nrm = np.linalg.norm(buf, axis=1, keepdims=True)
+            nrm[nrm == 0] = 1.0
+            buf /= nrm                                    # in place: no second full-size copy
+            out[sp] = buf
+            print(f"[ft-{objective} {tag} s{seed}] extracted {sp}: {buf.shape}", flush=True)
 
     # Same atomic-write discipline for the payload that actually matters: a truncated .npz would
     # register as a cache hit on the next run and silently feed corrupt features into the analysis.

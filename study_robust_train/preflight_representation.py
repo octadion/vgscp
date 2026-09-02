@@ -39,6 +39,11 @@ SESSION_HOURS = 4.0
 REQUIRED = ("FT_OBJECTIVES", "FT_SEEDS", "FT_EPOCHS", "FT_HP", "BATCH_SIZE", "CACHE_DTYPE")
 
 
+def per_gd_celeba() -> float:
+    """GB held by one CelebA GridData (train + reweight + eval_domain features, float32)."""
+    return (162770 + 9957 + 29872) * 2048 * 4 / 2**30
+
+
 def audit(ns: dict, *, verbose: bool = True) -> bool:
     """Audit a live namespace (or any dict of config values). Returns True if clean."""
     fails: list[str] = []
@@ -102,17 +107,53 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
             keys -= {"root", "image_size", "n_classes", "download", "dataset", "finetune"}
             chk("every cfg_for key is a real parameter", keys <= sig,
                 f"unknown={sorted(keys - sig)}")
-    if "build_all" in ns:
+    for fn, want in (("keys_for", {"dataset", "seeds"}), ("builder", {"dataset", "max_train"})):
+        if fn not in ns:
+            continue
         try:
-            p = set(inspect.signature(ns["build_all"]).parameters)
+            p = set(inspect.signature(ns[fn]).parameters)
         except (TypeError, ValueError):
-            p = None
-        if p is None:
             if verbose:
-                print("  SKIP  build_all signature check -- not introspectable")
-        else:
-            chk("build_all takes (dataset, max_train, seeds)",
-                {"dataset", "max_train", "seeds"} <= p, f"has {sorted(p)}")
+                print(f"  SKIP  {fn} signature check -- not introspectable")
+            continue
+        chk(f"{fn} takes {sorted(want)}", want <= p, f"has {sorted(p)}")
+
+    sec("host RAM (the crash that killed a CelebA run)")
+    # A DataLoader reserves batch x workers x prefetch DECODED images in host RAM. At 224x224x3
+    # float32 that is 0.574 MB each, so the product -- not the batch size alone -- is the budget.
+    from .finetune import EXTRACT_INFLIGHT_BYTES
+    img = 3 * 224 * 224 * 4
+    ebs = ns.get("EXTRACT_BS") or ns["BATCH_SIZE"]
+    budget = ns.get("EXTRACT_INFLIGHT") or EXTRACT_INFLIGHT_BYTES
+    nw = ns.get("NUM_WORKERS") or 12          # None resolves to <=12 at runtime
+    train_inflight = ns["BATCH_SIZE"] * nw * 4 * img / 2**30      # training uses prefetch_factor=4
+    ext_workers = max(2, min(nw, int(budget / (ebs * 2 * img))))
+    ext_inflight = ebs * ext_workers * 2 * img / 2**30
+    if verbose:
+        print(f"        training loader : bs={ns['BATCH_SIZE']} x {nw} workers x prefetch 4"
+              f"  -> {train_inflight:.1f} GB in flight")
+        print(f"        extraction loader: bs={ebs} x {ext_workers} workers (derived) x prefetch 2"
+              f"  -> {ext_inflight:.1f} GB in flight")
+    peak = ext_inflight + per_gd_celeba() + 1.24 + 2.0
+    if verbose:
+        print(f"        projected peak with streaming: {peak:.1f} GB "
+              f"(standard Colab ~12.7, high-RAM ~51)")
+    chk("projected peak RAM fits a standard runtime", peak <= 11.0, f"{peak:.1f} GB")
+    chk("training in-flight RAM within budget", train_inflight <= 4.0, f"{train_inflight:.1f} GB")
+    # Streaming keeps ONE GridData live; the batched form keeps them all, which is ~14 GB on CelebA.
+    per_gd = per_gd_celeba()
+    n_cel = len(objs) * len(cel_seeds)
+    if verbose:
+        print(f"        one CelebA GridData: {per_gd:.2f} GB   "
+              f"| all {n_cel} at once: {per_gd*n_cel:.1f} GB (streaming avoids this)")
+    # Only assertable once the definitions cell has run; the standalone path execs the config cell
+    # alone, so there is nothing to inspect there.
+    if "cfg_for" in ns:
+        chk("CelebA analysis is streamed, not accumulated",
+            "run_representation_streaming" in ns,
+            "cell 8 must use run_representation_streaming, not hold every GridData")
+    elif verbose:
+        print("  SKIP  streaming check -- run this from the notebook gate to assert it")
 
     sec("representation-affecting knobs are all keyed")
     base_kw = dict(epochs=10, seed=0, max_train=None, lr=1e-3, batch_size=128,
@@ -131,8 +172,13 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
     ck = set(inspect.signature(cache_key).parameters)
     chk("extract_batch_size is NOT keyed (no-grad forward, values identical)",
         "extract_batch_size" not in ck)
-    chk("TF32 stays disabled (would change numerics outside the key)",
-        "allow_tf32" not in inspect.getsource(finetune_features))
+    src = inspect.getsource(finetune_features)
+    # Neither is a hyperparameter, so neither is in cache_key -- which is why both must stay off:
+    # arms computed under different settings are not comparable and the cache would not show it.
+    chk("TF32 disabled (changes precision outside the cache key)",
+        "allow_tf32 = False" in src and "allow_tf32 = True" not in src)
+    chk("cudnn.benchmark disabled (changes kernel selection outside the cache key)",
+        "cudnn.benchmark = False" in src and "cudnn.benchmark = True" not in src)
 
     sec("predicted cache keys")
     def key(ds, obj, seed, mt):
