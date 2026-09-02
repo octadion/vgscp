@@ -118,7 +118,8 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
                       init_weights: str = "IMAGENET1K_V2",
                       cache_dir: str = "results/cache_finetune", ckpt_dir=None,
                       num_workers: int = 8, amp: bool = True, log_every: int = 1,
-                      ckpt_every: int = 1, cache_dtype: str = "float32") -> dict:
+                      ckpt_every: int = 1, cache_dtype: str = "float32",
+                      extract_batch_size=None) -> dict:
     """Fine-tune ResNet-50 end-to-end under ``objective`` and return penultimate features.
 
     Resumable: after every epoch a checkpoint (model/optimizer/scaler/GroupDRO ``q``/epoch) is
@@ -154,6 +155,13 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
     dev = torch.device(device if torch.cuda.is_available() else "cpu")
     torch.manual_seed(seed)
     np.random.seed(seed)
+    if dev.type == "cuda":
+        # Every batch has identical shape here, so let cuDNN pick its best algorithms once instead
+        # of re-heuristing per call, and allow TF32 matmuls (Ada/Ampere). Both change throughput
+        # only, not the computation being expressed.
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
 
     tf = transforms.Compose([
         transforms.Resize(256), transforms.CenterCrop(image_size), transforms.ToTensor(),
@@ -239,10 +247,12 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
             start_ep = 0
 
     # ---- train
+    import time as _time
     net.train()
     for ep in range(start_ep, epochs):
         run, seen, correct = 0.0, 0, 0
         g_correct, g_seen = np.zeros(G), np.zeros(G)
+        _t0 = _time.time()
         for xb, yb, gb in tr:
             xb = xb.to(dev, non_blocking=True, memory_format=torch.channels_last)
             yb = yb.to(dev, non_blocking=True)
@@ -289,15 +299,25 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
             gacc = np.divide(g_correct, np.maximum(g_seen, 1))
             wg = float(gacc[g_seen > 0].min()) if (g_seen > 0).any() else float("nan")
             qs = " q=[" + ",".join(f"{v:.2f}" for v in q) + "]" if objective == "groupdro" else ""
+            el = max(1e-9, _time.time() - _t0)
+            # img/s plus peak VRAM: if throughput is well under what the GPU can do and memory is
+            # barely touched, the loader is starving it and num_workers is the knob to raise.
+            mem = (f" vram={torch.cuda.max_memory_allocated()/2**30:.1f}G"
+                   if dev.type == "cuda" else "")
             print(f"[ft-{objective} {tag} s{seed}] ep {ep+1}/{epochs} loss={run/max(1,seen):.4f} "
-                  f"acc={correct/max(1,seen):.3f} train-wg={wg:.3f}{qs}", flush=True)
+                  f"acc={correct/max(1,seen):.3f} train-wg={wg:.3f}{qs} "
+                  f"[{seen/el:.0f} img/s, {el/60:.1f}m{mem}]", flush=True)
 
     # ---- extract penultimate features for every split
     feat_net = torch.nn.Sequential(*list(net.children())[:-1]).to(dev).eval()
+    # Extraction is a no-grad forward pass, so it holds no activations for backward and can use a
+    # much larger batch than training. This does not affect the extracted values at all -- unlike
+    # the training batch size, which is part of ``cache_key`` because it changes what is learned.
+    ebs = int(extract_batch_size or 4 * batch_size)
     out = {}
     with torch.no_grad(), torch.amp.autocast("cuda", enabled=use_amp):
         for sp, paths in paths_by_split.items():
-            dl = DataLoader(_DS(paths, y_by_split[sp]), batch_size=batch_size, shuffle=False,
+            dl = DataLoader(_DS(paths, y_by_split[sp]), batch_size=ebs, shuffle=False,
                             num_workers=num_workers, pin_memory=True)
             feats = []
             for xb, _, _ in dl:

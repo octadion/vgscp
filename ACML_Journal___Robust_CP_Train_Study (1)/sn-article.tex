@@ -279,13 +279,22 @@ calibration distribution; Appendix~\ref{app:shiftrobust}). Target $1-\alpha=0.90
 throughout; the full configuration is in Appendix~\ref{app:hyper}.
 
 \paragraph{Reliability quantities.} For group $g$, $\cov_g=\Pr[y\in C(x)\mid g]$
-and $|C|_g$ is its mean set size. We report worst-group coverage $\min_g\cov_g$,
-the \emph{coverage gap}
+and $|C|_g$ is its mean set size. We report worst-group coverage $\min_g\cov_g$
+and the \emph{coverage gap}, i.e.\ the worst group's shortfall from the target,
 \begin{equation}
-\covgap=\max_g\cov_g-\min_g\cov_g,
+\covgap=(1-\alpha)-\min_g\cov_g,
+\qquad
+\covgap>0 \Leftrightarrow \text{the worst group is under-covered,}
 \label{eq:covgap}
 \end{equation}
-mean set size, and set-size disparity $\max_g|C|_g-\min_g|C|_g$.
+which is the quantity tabulated throughout as the conformal ``burden''. We
+distinguish it from the \emph{coverage range} $\max_g\cov_g-\min_g\cov_g$, which
+measures dispersion across groups rather than distance from the target and which
+we report only where noted. We also report mean set size, the set-size disparity
+$\max_g|C|_g-\min_g|C|_g$, and---because $\min_g$ over a finite number of groups is
+a downward-biased statistic (Section~\ref{sec:h3})---the unweighted mean over
+groups $|\mathcal{G}|^{-1}\sum_g\cov_g$, which is the level group-conditional
+calibration actually targets.
 
 \paragraph{Cross-group conformity-score divergence (the ``burden'').} Following the
 conserved-quantity view of \citet{burden2026}, we summarize cross-group score
@@ -310,39 +319,75 @@ calibration and test scores.
 $\hat q_g$ the $\lceil(1-\alpha)(n_g+1)\rceil$-th smallest calibration score in
 group $g$, satisfies $\Pr\!\big(Y\in C(X)\mid G=g\big)\ge 1-\alpha$ for every group
 $g$, with no dependence on $s$ beyond exchangeability.
-\emph{(ii)} Marginal split conformal, with a single global threshold $\hat q$ set to
-the pooled $(1-\alpha)$-quantile, has per-group coverage
-$\Pr\!\big(Y\in C(X)\mid G=g\big)=F_g(\hat q)$, where $F_g$ is the group-$g$
-nonconformity-score CDF; the worst-group shortfall
-$(1-\alpha)-\min_g F_g(\hat q)$ increases as the worst group's score distribution
-$P_{\wg}$ shifts away from the pool, i.e.\ with the cross-group divergence $D$ of
-\eqref{eq:div}.
+\emph{(ii)} Let the scores be continuous, let $\pi=\Pr(G=\wg)$ under the calibration
+distribution, and let $F_g$ be the group-$g$ nonconformity-score CDF. Marginal split
+conformal uses the single pooled threshold $\hat q$ solving
+$\pi F_{\wg}(\hat q)+(1-\pi)F_{\neg\wg}(\hat q)=1-\alpha$, and has per-group coverage
+$\Pr\!\big(Y\in C(X)\mid G=g\big)=F_g(\hat q)$. The worst-group shortfall then obeys
+the exact identity
+\begin{equation}
+(1-\alpha)-F_{\wg}(\hat q)\;=\;(1-\pi)\,\big[F_{\neg\wg}(\hat q)-F_{\wg}(\hat q)\big],
+\label{eq:shortfall}
+\end{equation}
+and consequently
+\begin{equation}
+(1-\alpha)-F_{\wg}(\hat q)\;\le\;(1-\pi)\,D_{\mathrm{KS}}.
+\label{eq:ksbound}
+\end{equation}
 Hence the representation (through $s$, and through any training intervention that
 changes $s$) controls worst-group coverage \emph{only} under marginal calibration;
 under Mondrian it does not.
 \end{proposition}
 
-\begin{proof}[Proof sketch]
+\begin{proof}
 (i) is the standard finite-sample split-conformal guarantee applied within each
-group under within-group exchangeability. For (ii), $\hat q$ is fixed by the pooled
-calibration scores; by definition the group-$g$ coverage is $F_g(\hat q)$. The
-worst group is the one whose scores are most stochastically enlarged (highest
-nonconformity); as $P_{\wg}$ is pushed further above the pool---which $\Wone$ and
-the KS statistic of \eqref{eq:div} quantify---$F_{\wg}(\hat q)$ falls further below
-$1-\alpha$.
+group under within-group exchangeability. For (ii), the group-$g$ coverage is
+$F_g(\hat q)$ by definition of $C$. Writing the pooled CDF as the mixture
+$F=\pi F_{\wg}+(1-\pi)F_{\neg\wg}$ and using $F(\hat q)=1-\alpha$,
+\[
+1-\alpha=\pi F_{\wg}(\hat q)+(1-\pi)F_{\neg\wg}(\hat q)
+        =F_{\wg}(\hat q)+(1-\pi)\big[F_{\neg\wg}(\hat q)-F_{\wg}(\hat q)\big],
+\]
+which rearranges to \eqref{eq:shortfall}. Inequality \eqref{eq:ksbound} follows since
+$F_{\neg\wg}(\hat q)-F_{\wg}(\hat q)\le\sup_t|F_{\wg}(t)-F_{\neg\wg}(t)|=D_{\mathrm{KS}}$.
 \end{proof}
+
+\noindent\textbf{Remark (what the divergences do and do not give).} An earlier version
+asserted that the shortfall grows with the divergence $D$ of \eqref{eq:div}; we thank a
+reviewer for observing that this does not follow. What is true: the shortfall is the
+cross-group CDF gap \emph{at the threshold}, scaled by $(1-\pi)$, and $D_{\mathrm{KS}}$
+bounds it because it is a supremum over $t$. $\Wone$ admits no such bound---it
+integrates the gap over the line while the shortfall depends on it at one point, so the
+gap can concentrate on a vanishing interval with $\Wone\!\to\!0$ and the shortfall
+fixed---so we use $\Wone$ only as a descriptive summary of heterogeneity, its role in
+\citet{burden2026}. Neither divergence \emph{orders} coverage without a direction
+assumption: $P_{\wg}$ stochastically \emph{below} the pool has the same $\Wone$ and
+$D_{\mathrm{KS}}$ as its mirror image above it but yields a coverage surplus.
+Monotonicity needs $P_{\wg}\succeq_{\mathrm{st}}P_{\neg\wg}$, which holds here by
+construction, the worst group being defined as the lowest-coverage one---an assumption
+about which group is worst, not a consequence of the divergence.
 
 \noindent\textbf{Remark (what is and is not tested).} Part (i) is true by
 construction; our contribution is therefore \emph{not} that Mondrian covers groups,
 but the \emph{quantitative} claim of part (ii)---that under spurious correlation the
-relevant divergence $D$, and hence the marginal-calibration shortfall, is governed
-by base accuracy and is \emph{not} reduced by last-layer training beyond its
-accuracy effect (Sections~\ref{sec:c1},~\ref{sec:h1}). Proposition~\ref{prop:dissociation}
-also predicts the observed sub-target behavior: Mondrian's $\ge 1-\alpha$ guarantee
-holds in the exchangeable limit, so the empirical $0.85$--$0.89$ reflects
-finite-sample variance at small worst-group calibration counts together with the
-mild exchangeability perturbation induced by evaluating at $\rhotest$ away from
-$\rhocal$---a sub-target \emph{baseline}, not a shift collapse (Section~\ref{sec:h3}).
+threshold-point gap of \eqref{eq:shortfall}, and hence the marginal-calibration
+shortfall, is governed by base accuracy and is \emph{not} reduced by training beyond
+its accuracy effect, whether that training acts on the last layer or on the
+representation itself (Sections~\ref{sec:c1},~\ref{sec:h1}).
+Equation~\eqref{eq:shortfall} also explains why the
+marginal shortfall is so large for the minority group specifically: it scales with
+$(1-\pi)$, and $\pi$ is small exactly for the group the spurious correlation
+disadvantages.
+
+Proposition~\ref{prop:dissociation} is a population statement, and the gap between it
+and the empirical Mondrian level of $0.85$--$0.89$ is itself informative. Two
+finite-sample effects account for it, neither a failure of validity: the reported
+statistic is a \emph{minimum} over $|\mathcal{G}|$ noisy per-group coverages, which is
+biased low even when every group is individually valid; and under Mondrian each
+group's threshold is estimated from that group's own calibration sample, which at
+$\rhocal=0.95$ leaves the minority groups a few percent of the data. We quantify both
+in Section~\ref{sec:h3} and Appendix~\ref{app:subtarget}, where the unweighted
+mean-over-groups coverage is shown to sit at the nominal $0.90$.
 
 \paragraph{Group recoverability.} To test whether the deployed representation
 hides the protected group, we measure the test $\auroc$ of a probe
@@ -971,6 +1016,61 @@ survival is \texttt{undefined} (matched comparison loses overlap under shift);
 disparity trend is \texttt{eases} or \texttt{flat} except DFR/GroupDRO-LL on
 CelebA/ResNet-50 (\texttt{grows}); coverage range $<0.05$ and sub-target for every
 method.
+
+\section{Why Mondrian Sits Below Target: The Min-over-Groups Effect}
+\label{app:subtarget}
+
+Mondrian's empirical worst-group coverage settles at $0.85$--$0.89$ rather than the
+nominal $0.90$ (Section~\ref{sec:c1}). This appendix shows the level is what an
+\emph{exactly valid} procedure produces at our calibration sizes, so it is a property
+of the reported statistic and not a validity failure.
+
+Two effects combine, both finite-sample. First, per-group split conformal with the
+finite-sample-corrected quantile
+$\lceil(n_g+1)(1-\alpha)\rceil$ covers at $\ge1-\alpha$ \emph{in expectation over
+calibration draws}, but we report $\min_g\cov_g$, and the minimum of
+$|\mathcal{G}|$ noisy coverages is biased low: for approximately Gaussian per-group
+coverages with standard deviation $\sigma$, $\mathbb{E}[\min_g\cov_g]\approx
+(1-\alpha)-c_{|\mathcal{G}|}\sigma$ with $c_4\approx1.03$. Second, Mondrian estimates
+each threshold from that group's \emph{own} calibration sample, and at $\rhocal=0.95$
+the two minority groups hold only $2.5\%$ of the pool each---a $19\times$ imbalance in
+threshold precision relative to the majority groups.
+
+Table~\ref{tab:subtarget} simulates this with no model, no data and no
+representation: four groups, i.i.d.\ continuous scores, exact exchangeability, per-group
+conformal thresholds, and only the realised per-group calibration counts varied.
+
+\begin{table}[t]
+\centering
+\caption{Worst-group coverage of an \emph{exactly valid} Mondrian procedure under pure
+exchangeability, by calibration-pool size at $\rhocal=0.95$ (groups ordered $2y+a$;
+$\alpha=0.10$; $3000$ draws). The mean over groups sits at the nominal $0.90$ while the
+\emph{minimum} does not: the shortfall is the min-over-groups selection effect, and it
+shrinks as the minority calibration counts grow.}
+\label{tab:subtarget}
+\small
+\begin{tabular}{rlccc}
+\toprule
+cal.\ pool & per-group counts & mean over groups & $\mathbb{E}[\min_g\cov_g]$ & shortfall \\
+\midrule
+$500$    & $238/13/13/238$      & 0.915 & 0.842 & 0.058 \\
+$1{,}000$  & $475/25/25/475$      & 0.913 & 0.858 & 0.042 \\
+$2{,}000$  & $950/50/50/950$      & 0.901 & 0.856 & 0.044 \\
+$5{,}000$  & $2375/125/125/2375$  & 0.902 & 0.874 & 0.026 \\
+$10{,}000$ & $4750/250/250/4750$  & 0.900 & 0.880 & 0.020 \\
+\botrule
+\end{tabular}
+\end{table}
+
+The simulated shortfalls, $0.02$--$0.06$, bracket the $0.01$--$0.05$ we observe, and the
+observed values track calibration size in the same direction---larger on Waterbirds,
+smaller on the much larger CelebA pools. The diagnostic that settles it is the
+unweighted mean over groups, which is the level group-conditional calibration actually
+targets: across our Mondrian cells it is $0.906$, against a nominal $0.90$, while the
+minimum over the same cells is $0.868$. The $0.038$ between them is the selection
+effect of reporting a minimum, not under-coverage. We continue to report
+$\min_g\cov_g$ because it is the operationally relevant number, but we report the mean
+over groups alongside it so the two are not confused.
 
 \section{Excluded and Flagged Arms}
 \label{app:excl}
