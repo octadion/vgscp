@@ -56,7 +56,8 @@ def _paths_hash(paths) -> str:
 
 def cache_key(objective: str, tag: str, paths_by_split: dict, *, epochs: int, seed: int,
               max_train, lr: float, batch_size: int, optimizer: str = "adam",
-              weight_decay: float = 0.0, groupdro_eta: float = 0.01) -> str:
+              weight_decay: float = 0.0, groupdro_eta: float = 0.01,
+              init_weights: str = "IMAGENET1K_V2") -> str:
     """Cache identity for one fine-tuned representation.
 
     EVERY knob that changes the learned representation must appear here. ``groupdro_eta``,
@@ -68,8 +69,9 @@ def cache_key(objective: str, tag: str, paths_by_split: dict, *, epochs: int, se
     allp = [p for sp in sorted(paths_by_split) for p in paths_by_split[sp]]
     mt = "all" if max_train is None else int(max_train)
     extra = f"_eta{groupdro_eta:g}" if objective == "groupdro" else ""
-    return (f"ft-{objective}_{tag}_{_paths_hash(allp)}_{epochs}ep_lr{lr:g}_bs{batch_size}"
-            f"_wd{weight_decay:g}_{optimizer}{extra}_mt{mt}_s{seed}").replace("/", "-")
+    init = init_weights.replace("IMAGENET1K_", "in1k")     # the pretrained init IS the starting
+    return (f"ft-{objective}_{tag}_{_paths_hash(allp)}_{init}_{epochs}ep_lr{lr:g}"  # representation
+            f"_bs{batch_size}_wd{weight_decay:g}_{optimizer}{extra}_mt{mt}_s{seed}").replace("/", "-")
 
 
 def _save_checkpoint(torch, payload: dict, path: str, *, retries: int = 3) -> bool:
@@ -113,6 +115,7 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
                       batch_size: int = 128, image_size: int = 224, seed: int = 0,
                       max_train=None, groupdro_eta: float = 0.01,
                       optimizer: str = "adam", train_split: str = "train",
+                      init_weights: str = "IMAGENET1K_V2",
                       cache_dir: str = "results/cache_finetune", ckpt_dir=None,
                       num_workers: int = 8, amp: bool = True, log_every: int = 1,
                       ckpt_every: int = 1, cache_dtype: str = "float32") -> dict:
@@ -127,7 +130,8 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
 
     key = cache_key(objective, tag, paths_by_split, epochs=epochs, seed=seed,
                     max_train=max_train, lr=lr, batch_size=batch_size, optimizer=optimizer,
-                    weight_decay=weight_decay, groupdro_eta=groupdro_eta)
+                    weight_decay=weight_decay, groupdro_eta=groupdro_eta,
+                    init_weights=init_weights)
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, key + ".npz")
     if os.path.exists(cache_path):
@@ -169,7 +173,11 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
             return x, int(self.labels[i]), int(self.groups[i])
 
     n_classes = int(len(np.unique(y_by_split[train_split])))
-    net = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+    # IMAGENET1K_V2 to match the backbone the submitted paper already used
+    # (features.resnet50_erm_features). V1 is a materially weaker starting point (76.1% vs 80.9%
+    # ImageNet top-1) and produced worst-group accuracies below the paper's published range, which
+    # would leave the revision's tables contradicting the paper's own.
+    net = models.resnet50(weights=getattr(models.ResNet50_Weights, init_weights))
     net.fc = nn.Linear(net.fc.in_features, n_classes)
     net = net.to(dev, memory_format=torch.channels_last)
 
@@ -314,6 +322,7 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
         json.dump({"objective": objective, "tag": tag, "epochs": epochs, "lr": lr,
                    "weight_decay": weight_decay, "batch_size": batch_size, "seed": seed,
                    "max_train": max_train, "optimizer": optimizer,
+                   "init_weights": init_weights,
                    "groupdro_eta": groupdro_eta if objective == "groupdro" else None,
                    "n_train": len(tr_paths), "groups": groups_sorted.tolist()}, fh, indent=2)
     if os.path.exists(ckpt_path):
