@@ -201,6 +201,31 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
         chk("CelebA keys carry the subsample -> the aborted full-train run is not reused",
             f"mt{int(max_train)}" in key("celeba", "erm", 0, max_train))
 
+    # Which of those keys are actually on disk? A miss means that arm TRAINS, which on a CPU-only
+    # runtime is catastrophically slow with no warning. Only checkable where the cache dir exists,
+    # i.e. from the notebook after the symlink cell.
+    cache_dir = ns.get("FT_CACHE_DIR") or os.path.join("results", "cache_finetune")
+    if os.path.isdir(cache_dir):
+        sec("cache status (a miss means training, not analysis)")
+        miss = []
+        for ds, seeds, mt in (("waterbirds", wb_seeds, None), ("celeba", cel_seeds, max_train)):
+            for o in objs:
+                for s in seeds:
+                    # The path hash is dataset-derived, so match on the distinctive suffix instead.
+                    suffix = key(ds, o, s, mt).split("_", 3)[3] + ".npz"
+                    if not any(f.startswith(f"ft-{o}_{ds}_") and f.endswith(suffix)
+                               for f in os.listdir(cache_dir)):
+                        miss.append(f"{ds}/{o}/s{s}")
+        total = sum(len(objs) * len(sd) for sd in (wb_seeds, cel_seeds))
+        if verbose:
+            print(f"        {total - len(miss)}/{total} arms cached")
+            if miss:
+                print(f"        will TRAIN: {', '.join(miss[:8])}"
+                      + (f" (+{len(miss) - 8} more)" if len(miss) > 8 else ""))
+        chk("no arm will silently retrain (all cached)", not miss,
+            f"{len(miss)} would train -- use a GPU runtime, or expect a long CPU run")
+    elif verbose:
+        print("  SKIP  cache status -- run from the notebook, after the symlink cell")
     sec("cost and Drive projection")
     # Only meaningful once every budget exists; a missing one is already reported above, and
     # projecting through it would raise and hide the remaining checks.
