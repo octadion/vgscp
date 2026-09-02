@@ -57,7 +57,7 @@ def _paths_hash(paths) -> str:
 def cache_key(objective: str, tag: str, paths_by_split: dict, *, epochs: int, seed: int,
               max_train, lr: float, batch_size: int, optimizer: str = "adam",
               weight_decay: float = 0.0, groupdro_eta: float = 0.01,
-              init_weights: str = "IMAGENET1K_V2") -> str:
+              init_weights: str = "IMAGENET1K_V2", amp: bool = True) -> str:
     """Cache identity for one fine-tuned representation.
 
     EVERY knob that changes the learned representation must appear here. ``groupdro_eta``,
@@ -70,8 +70,13 @@ def cache_key(objective: str, tag: str, paths_by_split: dict, *, epochs: int, se
     mt = "all" if max_train is None else int(max_train)
     extra = f"_eta{groupdro_eta:g}" if objective == "groupdro" else ""
     init = init_weights.replace("IMAGENET1K_", "in1k")     # the pretrained init IS the starting
+    # Mixed precision changes the learned weights, so it belongs in the key. It is encoded only
+    # when switched OFF, so the default (True) keeps the keys already on disk valid -- the same
+    # trick used for ``groupdro_eta``, which appears only for the objective it affects.
+    prec = "" if amp else "_fp32"
     return (f"ft-{objective}_{tag}_{_paths_hash(allp)}_{init}_{epochs}ep_lr{lr:g}"  # representation
-            f"_bs{batch_size}_wd{weight_decay:g}_{optimizer}{extra}_mt{mt}_s{seed}").replace("/", "-")
+            f"_bs{batch_size}_wd{weight_decay:g}_{optimizer}{extra}{prec}"
+            f"_mt{mt}_s{seed}").replace("/", "-")
 
 
 def _save_checkpoint(torch, payload: dict, path: str, *, retries: int = 3) -> bool:
@@ -132,7 +137,7 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
     key = cache_key(objective, tag, paths_by_split, epochs=epochs, seed=seed,
                     max_train=max_train, lr=lr, batch_size=batch_size, optimizer=optimizer,
                     weight_decay=weight_decay, groupdro_eta=groupdro_eta,
-                    init_weights=init_weights)
+                    init_weights=init_weights, amp=amp)
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, key + ".npz")
     if os.path.exists(cache_path):
@@ -342,7 +347,7 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
         json.dump({"objective": objective, "tag": tag, "epochs": epochs, "lr": lr,
                    "weight_decay": weight_decay, "batch_size": batch_size, "seed": seed,
                    "max_train": max_train, "optimizer": optimizer,
-                   "init_weights": init_weights,
+                   "init_weights": init_weights, "amp": bool(amp),
                    "groupdro_eta": groupdro_eta if objective == "groupdro" else None,
                    "n_train": len(tr_paths), "groups": groups_sorted.tolist()}, fh, indent=2)
     if os.path.exists(ckpt_path):
