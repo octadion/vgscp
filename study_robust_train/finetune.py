@@ -42,13 +42,21 @@ def _paths_hash(paths) -> str:
 
 
 def cache_key(objective: str, tag: str, paths_by_split: dict, *, epochs: int, seed: int,
-              max_train, lr: float, batch_size: int) -> str:
-    """Cache identity for one fine-tuned representation. Every knob that changes the learned
-    representation is in the key, so a re-run with different settings never silently reuses."""
+              max_train, lr: float, batch_size: int, optimizer: str = "adam",
+              weight_decay: float = 1e-4, groupdro_eta: float = 0.01) -> str:
+    """Cache identity for one fine-tuned representation.
+
+    EVERY knob that changes the learned representation must appear here. ``groupdro_eta``,
+    ``optimizer`` and ``weight_decay`` are included precisely because tuning them is the expected
+    response to an under-trained robust arm -- and a key that ignored them would answer the re-run
+    with the old features and look like the change had no effect. ``groupdro_eta`` is folded in only
+    for the objective it affects, so ERM/reweight caches stay valid across eta changes.
+    """
     allp = [p for sp in sorted(paths_by_split) for p in paths_by_split[sp]]
     mt = "all" if max_train is None else int(max_train)
+    extra = f"_eta{groupdro_eta:g}" if objective == "groupdro" else ""
     return (f"ft-{objective}_{tag}_{_paths_hash(allp)}_{epochs}ep_lr{lr:g}_bs{batch_size}"
-            f"_mt{mt}_s{seed}").replace("/", "-")
+            f"_wd{weight_decay:g}_{optimizer}{extra}_mt{mt}_s{seed}").replace("/", "-")
 
 
 def _save_checkpoint(torch, payload: dict, path: str, *, retries: int = 3) -> bool:
@@ -105,7 +113,8 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
         raise ValueError(f"unknown objective {objective!r}; choose from {OBJECTIVES}")
 
     key = cache_key(objective, tag, paths_by_split, epochs=epochs, seed=seed,
-                    max_train=max_train, lr=lr, batch_size=batch_size)
+                    max_train=max_train, lr=lr, batch_size=batch_size, optimizer=optimizer,
+                    weight_decay=weight_decay, groupdro_eta=groupdro_eta)
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, key + ".npz")
     if os.path.exists(cache_path):
@@ -245,7 +254,7 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
             with torch.no_grad():
                 pred = logits.argmax(1)
                 ok = (pred == yb).float().cpu().numpy()
-            run += float(loss) * len(yb); seen += len(yb); correct += int(ok.sum())
+            run += float(loss.detach()) * len(yb); seen += len(yb); correct += int(ok.sum())
             for j in range(G):
                 m = gb_np == j
                 if m.any():

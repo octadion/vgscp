@@ -145,6 +145,16 @@ def validate_representation():
     check("two-lever comparison produced a decision",
           v["levers"]["verdict"] != "undetermined", v["levers"]["verdict"])
     check("lever difference carries a CI", "lo" in v["levers"]["diff_worst_mondrian_minus_best_marginal"])
+    check("primary lever holds the head fixed at the plain ERM head",
+          v["levers"]["primary_head"] == "erm")
+    check("a head-fixed lever is reported for every head",
+          set(v["levers"]["by_head"]) == {"erm", "dfr"})
+    check("head-fixed levers vary only the representation",
+          all(len(hv["best_marginal_cell"]) == 1 for hv in v["levers"]["by_head"].values()),
+          "cells are representations, not (repr, head) pairs")
+    check("joint lever kept as a separate, stricter bound",
+          v["levers"]["joint"]["scope"].startswith("joint")
+          and len(v["levers"]["joint"]["best_marginal_cell"]) == 2)
     check("marginal representation effect computed against the ERM representation",
           any(k.startswith("groupdro_vs_erm") for k in v["marginal_repr_effect"]))
     # NB: no check that Mondrian is flatter here. On this toy pool the eval split leaves the
@@ -161,8 +171,9 @@ def validate_representation():
         p = os.path.join(td, "REPRESENTATION.md")
         text = write_representation_md(out, p)
         check("report written", os.path.exists(p) and len(text) > 400)
-        for token in ("Two-lever comparison", "Sub-target diagnostic", "equivalence @ margin",
-                      "mean *over-groups* coverage"):
+        for token in ("Primary lever comparison", "Sub-target diagnostic", "equivalence @ margin",
+                      "mean *over-groups* coverage", "Did the fine-tune change the representation?",
+                      "Same comparison with each head held fixed"):
             check(f"report contains {token!r}", token in text)
 
     print("\n[11] representation: the verdict discriminates in BOTH directions")

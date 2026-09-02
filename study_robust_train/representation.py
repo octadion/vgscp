@@ -144,23 +144,21 @@ def representation_verdict(records, *, scores=REPR_SCORES, margin: float = FLATN
                     "marginal_by_head": {h: float(v.mean()) for h, (v, _) in by_head_g.items()},
                 }
 
-            # --- the two levers, over every (representation, head) cell
-            marg_cells, mond_cells = {}, {}
-            for rp in reprs:
-                for h in heads:
-                    ma = _sel(base, representation=rp, head=h, calibration="marginal_split")
-                    mo = _sel(base, representation=rp, head=h, calibration="mondrian")
-                    if ma:
-                        marg_cells[(rp, h)] = _vals(ma)
-                    if mo:
-                        mond_cells[(rp, h)] = _vals(mo)
-
-            lever = {"verdict": "undetermined", "note": "need both calibration policies"}
-            if marg_cells and mond_cells:
-                best_marg = max(marg_cells, key=lambda k: marg_cells[k][0].mean())
-                worst_mond = min(mond_cells, key=lambda k: mond_cells[k][0].mean())
-                bm_v, bm_s = marg_cells[best_marg]
-                wm_v, wm_s = mond_cells[worst_mond]
+            # --- the two levers.
+            # The lever comparison must vary ONE axis at a time. Maximising the marginal side over
+            # (representation x head) jointly lets a robust *head* stand in for the representation
+            # -- and empirically it does: the best marginal cell on Waterbirds is the ERM
+            # representation with a DFR head, i.e. the last-layer axis the original paper already
+            # studied, not the representation axis the reviewers asked about. So the primary test
+            # holds the head FIXED and varies only the representation; the joint version is kept as
+            # a strictly harder secondary bound.
+            def _lever(cells_marg, cells_mond, label):
+                if not (cells_marg and cells_mond):
+                    return {"verdict": "undetermined", "note": "need both calibration policies"}
+                best_marg = max(cells_marg, key=lambda k: cells_marg[k][0].mean())
+                worst_mond = min(cells_mond, key=lambda k: cells_mond[k][0].mean())
+                bm_v, bm_s = cells_marg[best_marg]
+                wm_v, wm_s = cells_mond[worst_mond]
                 if best_marg == worst_mond:          # same cell -> paired difference is exact
                     diff = paired_cluster_diff_ci(wm_v, bm_v, wm_s)
                 else:                                # different cells -> unpaired cluster CIs
@@ -170,17 +168,40 @@ def representation_verdict(records, *, scores=REPR_SCORES, margin: float = FLATN
                             "hi": a["hi"] - b["lo"], "n_seeds": min(a["n_seeds"], b["n_seeds"]),
                             "n_obs": a["n_obs"] + b["n_obs"], "method": a["method"] + " (unpaired)"}
                     diff["excludes_zero"] = bool(diff["lo"] > 0 or diff["hi"] < 0)
-                lever = {
-                    "best_marginal_cell": list(best_marg),
+                return {
+                    "scope": label,
+                    "best_marginal_cell": list(best_marg) if isinstance(best_marg, tuple) else [best_marg],
                     "best_marginal_cov": float(bm_v.mean()),
-                    "worst_mondrian_cell": list(worst_mond),
+                    "worst_mondrian_cell": list(worst_mond) if isinstance(worst_mond, tuple) else [worst_mond],
                     "worst_mondrian_cov": float(wm_v.mean()),
                     "diff_worst_mondrian_minus_best_marginal": diff,
-                    "verdict": ("CALIBRATION LEVER DOMINATES (worst Mondrian cell beats best "
-                                "marginal cell, CI excludes 0)"
+                    "verdict": ("CALIBRATION LEVER DOMINATES (worst Mondrian beats best marginal, "
+                                "CI excludes 0)"
                                 if diff["point"] > 0 and diff.get("excludes_zero")
                                 else "representation lever competitive — NARROW THE TITLE CLAIM"),
                 }
+
+            marg_cells, mond_cells = {}, {}
+            by_head = {}
+            for h in heads:
+                hm, hd = {}, {}
+                for rp in reprs:
+                    ma = _sel(base, representation=rp, head=h, calibration="marginal_split")
+                    mo = _sel(base, representation=rp, head=h, calibration="mondrian")
+                    if ma:
+                        marg_cells[(rp, h)] = hm[rp] = _vals(ma)
+                    if mo:
+                        mond_cells[(rp, h)] = hd[rp] = _vals(mo)
+                by_head[h] = _lever(hm, hd, f"representation-only (head fixed = {h})")
+
+            lever_joint = _lever(marg_cells, mond_cells, "joint over representation x head")
+            # The plain ERM head is the primary readout: no last-layer intervention, so the only
+            # thing that differs between its cells is the representation itself.
+            primary_head = "erm" if "erm" in by_head else (heads[0] if heads else None)
+            lever = dict(by_head.get(primary_head, lever_joint))
+            lever["primary_head"] = primary_head
+            lever["by_head"] = by_head
+            lever["joint"] = lever_joint
 
             # --- does a robust REPRESENTATION fix marginal calibration on its own?
             repr_effect = {}
@@ -229,14 +250,43 @@ def write_representation_md(out: dict, path: str = "REPRESENTATION.md") -> str:
         lev = v["levers"]
         if "best_marginal_cell" in lev:
             d = lev["diff_worst_mondrian_minus_best_marginal"]
-            L.append(f"**Two-lever comparison.** Best marginal cell "
+            L.append(f"**Primary lever comparison — representation only** (head held fixed at "
+                     f"`{lev.get('primary_head')}`, so the only axis that varies is the "
+                     f"representation). Best marginal representation "
                      f"`{lev['best_marginal_cell']}` = {lev['best_marginal_cov']:.3f}; "
-                     f"worst Mondrian cell `{lev['worst_mondrian_cell']}` = "
+                     f"worst Mondrian representation `{lev['worst_mondrian_cell']}` = "
                      f"{lev['worst_mondrian_cov']:.3f}. Difference "
                      f"{d['point']:+.3f} [{d['lo']:+.3f}, {d['hi']:+.3f}] ({d['method']}, "
                      f"{d['n_seeds']} seeds).")
             L.append("")
             L.append(f"**Verdict: {lev['verdict']}**")
+            L.append("")
+            if lev.get("by_head"):
+                L.append("Same comparison with each head held fixed:")
+                L.append("")
+                L.append("| head held fixed | best marginal | worst Mondrian | difference [CI] | verdict |")
+                L.append("|---|---|---|---|---|")
+                for h, hv in sorted(lev["by_head"].items()):
+                    if "best_marginal_cell" not in hv:
+                        continue
+                    hd_ = hv["diff_worst_mondrian_minus_best_marginal"]
+                    L.append(f"| {h} | {hv['best_marginal_cov']:.3f} "
+                             f"({hv['best_marginal_cell'][0]}) | {hv['worst_mondrian_cov']:.3f} "
+                             f"({hv['worst_mondrian_cell'][0]}) | {hd_['point']:+.3f} "
+                             f"[{hd_['lo']:+.3f}, {hd_['hi']:+.3f}] | "
+                             f"{'dominates' if hd_['point'] > 0 and hd_.get('excludes_zero') else 'competitive'} |")
+                L.append("")
+            j = lev.get("joint")
+            if j and "best_marginal_cell" in j:
+                jd = j["diff_worst_mondrian_minus_best_marginal"]
+                L.append(f"_Secondary (strictly harder) bound, maximising the marginal side jointly "
+                         f"over representation x head: best marginal `{j['best_marginal_cell']}` = "
+                         f"{j['best_marginal_cov']:.3f} vs worst Mondrian "
+                         f"`{j['worst_mondrian_cell']}` = {j['worst_mondrian_cov']:.3f}, "
+                         f"difference {jd['point']:+.3f} [{jd['lo']:+.3f}, {jd['hi']:+.3f}]. "
+                         f"This lets a robust **head** substitute for the representation, so it "
+                         f"tests a different question than the reviewers asked._")
+                L.append("")
         else:
             L.append(f"_{lev.get('note', lev['verdict'])}_")
         L.append("")
@@ -250,6 +300,28 @@ def write_representation_md(out: dict, path: str = "REPRESENTATION.md") -> str:
                 L.append(f"| {k} | {d['point']:+.3f} [{d['lo']:+.3f}, {d['hi']:+.3f}] | "
                          f"{'yes' if d['excludes_zero'] else 'no'} |")
             L.append("")
+
+    # Did the robust objectives actually produce robust representations? Without this the whole
+    # comparison could be vacuous, so it is reported on the EVALUATION distribution (train
+    # worst-group accuracy is not evidence -- a 10-epoch fine-tune memorises the training split).
+    L += ["## Did the fine-tune change the representation? (eval worst-group accuracy)", ""]
+    ds_list = sorted({r["dataset"] for r in recs})
+    for dataset in ds_list:
+        sub = [r for r in recs if r["dataset"] == dataset]
+        reprs = sorted({r["representation"] for r in sub})
+        heads = sorted({r["head"] for r in sub})
+        L.append(f"**{dataset}** — worst-group accuracy, mean over fine-tune seeds")
+        L.append("")
+        L.append("| representation | " + " | ".join(heads) + " |")
+        L.append("|---" * (len(heads) + 1) + "|")
+        for rp in reprs:
+            row = []
+            for h in heads:
+                vals = [r["worst_group_acc"] for r in sub
+                        if r["representation"] == rp and r["head"] == h]
+                row.append(f"{np.mean(vals):.3f}" if vals else "—")
+            L.append(f"| {rp} | " + " | ".join(row) + " |")
+        L.append("")
 
     # min-over-groups diagnostic: the sub-target level, measured rather than argued (R1.1, R3)
     mond = [r for r in recs if r.get("calibration") == "mondrian"]
