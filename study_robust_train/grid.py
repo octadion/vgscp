@@ -114,6 +114,35 @@ def run_grid(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep=RHO
     return out
 
 
+def gate_lists_from_records(records):
+    """Rebuild the (excluded, flagged) arm lists from tidy records.
+
+    The records carry ``gate_status`` and ``gate_floor`` per arm, so the lists are a function of the
+    records and do not depend on which pass produced them. That is what makes them correct after a
+    resume, where finished cells are read back from CSV rather than recomputed.
+    """
+    seen, excluded, flagged = set(), [], []
+    for r in records:
+        status = r.get("gate_status")
+        if status not in ("excluded", "flagged"):
+            continue
+        arm = (r["backbone"], r["dataset"], r["method"], r["train_seed"])
+        if arm in seen:
+            continue
+        seen.add(arm)
+        entry = {"backbone": r["backbone"], "dataset": r["dataset"], "method": r["method"],
+                 "seed": r["train_seed"], "worst_group_acc": r["worst_group_acc"]}
+        if status == "excluded":
+            entry["floor"] = r.get("gate_floor")
+            entry["reason"] = "below per-method worst-group acc floor"
+            excluded.append(entry)
+        else:
+            entry["expected_min"] = WG_ACC_SOFT_FLAG.get((r["dataset"], r["method"]))
+            entry["reason"] = "below expected worst-group acc (kept; flag for review)"
+            flagged.append(entry)
+    return excluded, flagged
+
+
 def run_grid_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES, rho_sweep=RHO_SWEEP,
                        seeds=(0, 1, 2), n_splits=10, alpha=0.1, method_hp=None,
                        cell_csv=None, verbose=True) -> dict:
@@ -141,7 +170,7 @@ def run_grid_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES, rho_sw
         if verbose:
             print(f"[resume] {len(records):,} records for {sorted(done)} already in {cell_csv}")
 
-    excluded, flagged, failed = [], [], []
+    failed = []
     for bb, ds in keys:
         if (bb, ds) in done:
             if verbose:
@@ -156,8 +185,6 @@ def run_grid_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES, rho_sw
         one = run_grid({(bb, ds): gd}, methods=methods, scores=scores, rho_sweep=rho_sweep,
                        seeds=seeds, n_splits=n_splits, alpha=alpha, method_hp=method_hp)
         records += one["records"]
-        excluded += one["excluded"]
-        flagged += one["flagged"]
         del gd, one
         gc.collect()
         if cell_csv:                               # persist after every cell, not at the end
@@ -165,6 +192,11 @@ def run_grid_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES, rho_sw
         if verbose:
             print(f"[cell done] {bb}/{ds}: {len(records):,} records total", flush=True)
 
+    # Derive the gate lists FROM THE RECORDS, not by accumulating them as cells finish. On a
+    # resumed run the finished cells come back from the CSV and never pass through the loop, so an
+    # accumulated list would report zero excluded arms -- which would silently break the R2.4
+    # sensitivity analysis exactly when the run took more than one session.
+    excluded, flagged = gate_lists_from_records(records)
     kept = [r for r in records if r.get("gate_status") != "excluded"]
     out = {"records": records, "excluded": excluded, "flagged": flagged, "failed": failed,
            "verdicts": build_verdicts(kept, scores=scores, rho_sweep=rho_sweep)}
