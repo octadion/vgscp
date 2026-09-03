@@ -62,7 +62,9 @@ def _paths_hash(paths) -> str:
 def cache_key(objective: str, tag: str, paths_by_split: dict, *, epochs: int, seed: int,
               max_train, lr: float, batch_size: int, optimizer: str = "adam",
               weight_decay: float = 0.0, groupdro_eta: float = 0.01,
-              init_weights: str = "IMAGENET1K_V2", amp: bool = True) -> str:
+              init_weights: str = "IMAGENET1K_V2", amp: bool = True,
+              select_by: str = "val_worst_group", val_frac: float = 0.1,
+              val_min_per_group: int = 15) -> str:
     """Cache identity for one fine-tuned representation.
 
     EVERY knob that changes the learned representation must appear here. ``groupdro_eta``,
@@ -79,8 +81,12 @@ def cache_key(objective: str, tag: str, paths_by_split: dict, *, epochs: int, se
     # when switched OFF, so the default (True) keeps the keys already on disk valid -- the same
     # trick used for ``groupdro_eta``, which appears only for the objective it affects.
     prec = "" if amp else "_fp32"
+    # Which checkpoint is kept IS part of the representation, so the selection protocol is keyed.
+    # Encoded only when selection is on, so the pre-selection caches keep their existing names and
+    # remain available as a with/without ablation.
+    sel = f"_sel{select_by}{val_frac:g}n{val_min_per_group}" if select_by else ""
     return (f"ft-{objective}_{tag}_{_paths_hash(allp)}_{init}_{epochs}ep_lr{lr:g}"  # representation
-            f"_bs{batch_size}_wd{weight_decay:g}_{optimizer}{extra}{prec}"
+            f"_bs{batch_size}_wd{weight_decay:g}_{optimizer}{extra}{prec}{sel}"
             f"_mt{mt}_s{seed}").replace("/", "-")
 
 
@@ -129,7 +135,9 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
                       cache_dir: str = "results/cache_finetune", ckpt_dir=None,
                       num_workers: int = 8, amp: bool = True, log_every: int = 1,
                       ckpt_every: int = 1, cache_dtype: str = "float32",
-                      extract_batch_size=None, extract_inflight_bytes=None) -> dict:
+                      extract_batch_size=None, extract_inflight_bytes=None,
+                      select_by: str = "val_worst_group", val_frac: float = 0.1,
+                      val_min_per_group: int = 15) -> dict:
     """Fine-tune ResNet-50 end-to-end under ``objective`` and return penultimate features.
 
     Resumable: after every epoch a checkpoint (model/optimizer/scaler/GroupDRO ``q``/epoch) is
@@ -138,11 +146,14 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
     """
     if objective not in OBJECTIVES:
         raise ValueError(f"unknown objective {objective!r}; choose from {OBJECTIVES}")
+    if select_by not in ("", "val_worst_group"):
+        raise ValueError(f"unknown select_by {select_by!r}; use 'val_worst_group' or '' to disable")
 
     key = cache_key(objective, tag, paths_by_split, epochs=epochs, seed=seed,
                     max_train=max_train, lr=lr, batch_size=batch_size, optimizer=optimizer,
                     weight_decay=weight_decay, groupdro_eta=groupdro_eta,
-                    init_weights=init_weights, amp=amp)
+                    init_weights=init_weights, amp=amp, select_by=select_by, val_frac=val_frac,
+                    val_min_per_group=val_min_per_group)
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, key + ".npz")
     if os.path.exists(cache_path):
@@ -220,6 +231,42 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
     gmap = {int(v): j for j, v in enumerate(groups_sorted)}
     tr_gk = np.array([gmap[int(v)] for v in tr_g])
 
+    # ---- group-stratified validation slice, carved from TRAIN and never trained on.
+    # Model selection on worst-group validation accuracy is the standard protocol in this
+    # literature (Sagawa et al. 2020; Kirichenko et al. 2023; Liu et al. 2021) precisely because
+    # these objectives overfit the minority group. Taking the last epoch instead let GroupDRO on
+    # CelebA drive train worst-group accuracy to 0.978 while evaluation stayed at ERM's level.
+    # The slice comes out of train rather than d_learn/d_cal/d_test so that DFR's reweighting
+    # split and the conformal pools stay untouched -- selecting on d_learn would leak the
+    # selection signal into the split DFR is later fitted on.
+    va_idx = np.array([], dtype=int)
+    if select_by and val_frac > 0:
+        rng_v = np.random.default_rng(10_000 + seed)
+        take = []
+        for j in range(G):                       # stratified: the minority group is ~0.85% of
+            idx = np.flatnonzero(tr_gk == j)     # CelebA, so a uniform draw could miss it
+            # A floor, because val_frac alone is useless on a tiny group: Waterbirds' smallest
+            # training group has ~56 examples, so 10% is 6 and the worst-group estimate has an SE
+            # near 0.20. The floor is itself capped at a quarter of the group, so a small group
+            # never loses most of its training examples to validation.
+            k = max(int(round(val_frac * idx.size)), min(val_min_per_group, idx.size // 4))
+            if idx.size >= 2 and k >= 1:
+                take.append(rng_v.choice(idx, size=min(k, idx.size - 1), replace=False))
+        if take:
+            va_idx = np.sort(np.concatenate(take))
+    keep = np.setdiff1d(np.arange(len(tr_paths)), va_idx, assume_unique=False)
+    va_paths = [tr_paths[i] for i in va_idx]
+    va_y, va_gk = tr_y[va_idx], tr_gk[va_idx]
+    tr_paths = [tr_paths[i] for i in keep]
+    tr_y, tr_gk = tr_y[keep], tr_gk[keep]
+    if va_idx.size:
+        per_g = [int((va_gk == j).sum()) for j in range(G)]
+        se = 0.5 / max(1.0, float(min(per_g)) ** 0.5)     # worst case SE of the smallest group
+        print(f"[ft-{objective} {tag} s{seed}] val slice {va_idx.size} (per group {per_g}); "
+              f"training on {len(tr_paths)}; selection SE on the smallest group ~{se:.3f}"
+              + ("  [NOISY: treat selection as cliff-avoidance, not fine tuning]"
+                 if se > 0.08 else ""))
+
     ds = _DS(tr_paths, tr_y, tr_gk)
     dl_kw = dict(batch_size=batch_size, num_workers=num_workers, pin_memory=True,
                  drop_last=False, persistent_workers=num_workers > 0)
@@ -245,6 +292,32 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
 
     q = np.ones(G) / G          # GroupDRO group weights (exponentiated-gradient ascent)
     start_ep = 0
+    best = {"score": -1.0, "epoch": 0, "state": None}   # best-on-validation checkpoint
+
+    def _val_worst_group():
+        """Worst-group accuracy on the held-out slice. No grad, eval mode, restored after."""
+        if not va_paths:
+            return None
+        vl = DataLoader(_DS(va_paths, va_y, va_gk), batch_size=int(extract_batch_size or batch_size),
+                        shuffle=False, num_workers=min(4, num_workers), pin_memory=True)
+        was_training = net.training
+        net.eval()
+        corr, seen_g = np.zeros(G), np.zeros(G)
+        with torch.no_grad(), torch.amp.autocast("cuda", enabled=use_amp):
+            for xb, yb, gb in vl:
+                xb = xb.to(dev, non_blocking=True, memory_format=torch.channels_last)
+                pred = net(xb).argmax(1).cpu().numpy()
+                ok = (pred == yb.numpy()).astype(float)
+                gnp = gb.numpy()
+                for j in range(G):
+                    m = gnp == j
+                    if m.any():
+                        corr[j] += ok[m].sum(); seen_g[j] += m.sum()
+        del vl                                   # release its worker processes before training
+        if was_training:
+            net.train()
+        acc = np.divide(corr, np.maximum(seen_g, 1))
+        return float(acc[seen_g > 0].min()) if (seen_g > 0).any() else None
 
     # ---- resume
     ckpt_dir = ckpt_dir or os.path.join(cache_dir, "ckpt")
@@ -256,6 +329,11 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
             net.load_state_dict(ck["model"]); opt.load_state_dict(ck["opt"])
             scaler.load_state_dict(ck["scaler"]); q = np.asarray(ck["q"], dtype=np.float64)
             start_ep = int(ck["epoch"])
+            if ck.get("best_state") is not None:
+                best = {"score": float(ck["best_score"]), "epoch": int(ck["best_epoch"]),
+                        "state": ck["best_state"]}
+                print(f"[ft-{objective} {tag} s{seed}] restored best epoch {best['epoch']} "
+                      f"(val worst-group {best['score']:.3f})")
             print(f"[ft-{objective} {tag} s{seed}] RESUMED from epoch {start_ep}/{epochs}")
         except Exception as e:                                   # corrupt/partial write -> restart
             print(f"[ft-{objective} {tag} s{seed}] checkpoint unreadable ({e}); starting fresh")
@@ -309,19 +387,42 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
         if (ep + 1) % ckpt_every == 0 or (ep + 1) == epochs:
             _save_checkpoint(torch, {"model": net.state_dict(), "opt": opt.state_dict(),
                                      "scaler": scaler.state_dict(), "q": q.tolist(),
-                                     "epoch": ep + 1}, ckpt_path)
+                                     "epoch": ep + 1,
+                                     # without these a resumed run forgets the best epoch and
+                                     # selects from the remaining ones only
+                                     "best_score": best["score"], "best_epoch": best["epoch"],
+                                     "best_state": best["state"]}, ckpt_path)
+        # ---- model selection on held-out worst-group accuracy
+        vwg = _val_worst_group()
+        if vwg is not None and vwg > best["score"]:
+            best = {"score": vwg, "epoch": ep + 1,
+                    # .cpu() so the kept copy does not pin GPU memory for the rest of training
+                    "state": {k: v.detach().to("cpu", copy=True) for k, v in net.state_dict().items()}}
+
         if (ep + 1) % log_every == 0:
             gacc = np.divide(g_correct, np.maximum(g_seen, 1))
             wg = float(gacc[g_seen > 0].min()) if (g_seen > 0).any() else float("nan")
             qs = " q=[" + ",".join(f"{v:.2f}" for v in q) + "]" if objective == "groupdro" else ""
+            vs = f" val-wg={vwg:.3f}{'*' if best['epoch'] == ep + 1 else ''}" if vwg is not None else ""
             el = max(1e-9, _time.time() - _t0)
             # img/s plus peak VRAM: if throughput is well under what the GPU can do and memory is
             # barely touched, the loader is starving it and num_workers is the knob to raise.
             mem = (f" vram={torch.cuda.max_memory_allocated()/2**30:.1f}G"
                    if dev.type == "cuda" else "")
             print(f"[ft-{objective} {tag} s{seed}] ep {ep+1}/{epochs} loss={run/max(1,seen):.4f} "
-                  f"acc={correct/max(1,seen):.3f} train-wg={wg:.3f}{qs} "
+                  f"acc={correct/max(1,seen):.3f} train-wg={wg:.3f}{vs}{qs} "
                   f"[{seen/el:.0f} img/s, {el/60:.1f}m{mem}]", flush=True)
+
+    # ---- restore the selected checkpoint. Without this the extracted features come from the
+    # LAST epoch, which is exactly the checkpoint the selection exists to avoid.
+    if best["state"] is not None:
+        net.load_state_dict({k: v.to(dev) for k, v in best["state"].items()})
+        print(f"[ft-{objective} {tag} s{seed}] selected epoch {best['epoch']}/{epochs} "
+              f"(val worst-group {best['score']:.3f})", flush=True)
+        best["state"] = None                      # free the CPU copy before extraction allocates
+    elif select_by:
+        print(f"[ft-{objective} {tag} s{seed}] no validation slice -- using the last epoch",
+              flush=True)
 
     # ---- extract penultimate features for every split
     feat_net = torch.nn.Sequential(*list(net.children())[:-1]).to(dev).eval()
@@ -382,6 +483,9 @@ def finetune_features(paths_by_split: dict, y_by_split: dict, group_by_split: di
                    "weight_decay": weight_decay, "batch_size": batch_size, "seed": seed,
                    "max_train": max_train, "optimizer": optimizer,
                    "init_weights": init_weights, "amp": bool(amp),
+                   "select_by": select_by, "val_frac": val_frac,
+                   "val_min_per_group": val_min_per_group,
+                   "selected_epoch": best["epoch"], "selected_val_wg": best["score"],
                    "groupdro_eta": groupdro_eta if objective == "groupdro" else None,
                    "n_train": len(tr_paths), "groups": groups_sorted.tolist()}, fh, indent=2)
     if os.path.exists(ckpt_path):
