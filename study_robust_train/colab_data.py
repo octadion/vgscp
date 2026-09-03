@@ -97,26 +97,39 @@ def prepare_celeba(drive_cache: str, *, source: str = "kaggle", celeba_drive: st
     if celeba_ready(dest):
         print("[celeba] already prepared at", dest); return dest
     import shutil
-    cand = ["kaggle.json", "/content/kaggle.json", os.path.expanduser("~/.kaggle/kaggle.json")]
-    found = next((c for c in cand if os.path.exists(c)), None)
-    if not found:
-        print("[celeba] kaggle.json NOT found. Colab: Files panel -> upload kaggle.json to /content, "
-              "then re-run. Token: kaggle.com -> Account -> Create New API Token.")
-        return None
-    os.makedirs(os.path.expanduser("~/.kaggle"), exist_ok=True)
-    shutil.copy(found, os.path.expanduser("~/.kaggle/kaggle.json")); _sh("chmod 600 ~/.kaggle/kaggle.json")
-    subprocess.run("pip -q install kaggle pandas", shell=True)
     zip_cache = f"{drive_cache}/celeba-dataset.zip"
     big = lambda z: os.path.exists(z) and os.path.getsize(z) > 100 * 1024 * 1024
+
+    # The Drive-cached zip is checked FIRST. kaggle.json is a *download* credential, so demanding
+    # it up front made a new session fail even with the 1.4 GB zip already on Drive -- and files
+    # under /content do not survive a runtime restart, so that is the common case on a resumed run.
     if big(zip_cache):
-        zip_use = zip_cache; print(f"[celeba] reusing cached zip ({os.path.getsize(zip_cache)/1e9:.2f} GB)")
+        zip_use = zip_cache
+        print(f"[celeba] reusing cached zip ({os.path.getsize(zip_cache)/1e9:.2f} GB) "
+              f"-- no kaggle.json needed")
+        subprocess.run("pip -q install pandas", shell=True)
     else:
+        cand = ["kaggle.json", "/content/kaggle.json",
+                os.path.expanduser("~/.kaggle/kaggle.json")]
+        found = next((c for c in cand if os.path.exists(c)), None)
+        if not found:
+            print(f"[celeba] no cached zip at {zip_cache} and kaggle.json NOT found. Colab: Files "
+                  f"panel -> upload kaggle.json to /content, then re-run. Token: kaggle.com -> "
+                  f"Settings -> API -> Create New API Token. (Files in /content are lost on a "
+                  f"runtime restart, so re-upload after one.)")
+            return None
+        os.makedirs(os.path.expanduser("~/.kaggle"), exist_ok=True)
+        shutil.copy(found, os.path.expanduser("~/.kaggle/kaggle.json"))
+        _sh("chmod 600 ~/.kaggle/kaggle.json")
+        subprocess.run("pip -q install kaggle pandas", shell=True)
         _sh("kaggle datasets download -d jessicali9530/celeba-dataset -p /content")
         zip_use = "/content/celeba-dataset.zip"
         if big(zip_use):
             _sh(f"cp '{zip_use}' '{zip_cache}'")
         else:
-            print(f"[celeba] download FAILED / zip too small (check kaggle.json validity & access). "
+            print(f"[celeba] download FAILED / zip too small (check the token is valid and that "
+                  f"you accepted the dataset rules at "
+                  f"kaggle.com/datasets/jessicali9530/celeba-dataset). "
                   f"exists={os.path.exists(zip_use)}")
             return None
     _sh(f"unzip -q -o '{zip_use}' -d '{dest}'")

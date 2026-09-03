@@ -47,3 +47,44 @@ def test_normalize_missing_artifact_returns_none(tmp_path):
     open(f"{root}/list_attr_celeba.txt", "w").close()
     open(f"{root}/list_eval_partition.txt", "w").close()
     assert normalize_celeba(root) is None
+
+
+def test_cached_zip_does_not_require_kaggle_json(tmp_path, monkeypatch):
+    """A Drive-cached zip must be usable without a credential.
+
+    kaggle.json is a *download* credential. Demanding it before checking the cache made a resumed
+    session fail with the 1.4 GB zip already on Drive -- and files under /content are lost on a
+    runtime restart, so that is the normal state of a second session.
+    """
+    import subprocess as sp
+    import types
+    from study_robust_train import colab_data as cd
+
+    drive = tmp_path / "drive"
+    drive.mkdir()
+    (drive / "celeba-dataset.zip").write_bytes(b"x" * (101 * 1024 * 1024))
+
+    calls = []
+    monkeypatch.setattr(cd, "_sh", lambda c: calls.append(c))
+    monkeypatch.setattr(cd, "normalize_celeba", lambda d: d)
+    monkeypatch.setattr(sp, "run",
+                        lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="", stderr=""))
+    # no kaggle.json anywhere: point HOME at an empty dir and run from one too
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+
+    out = cd.prepare_celeba(str(drive), source="kaggle", dest=str(tmp_path / "out"))
+    assert out is not None, "cached zip should be used without a credential"
+    assert any("unzip" in c for c in calls), "should have unzipped the cached zip"
+    assert not any("kaggle datasets download" in c for c in calls), "must not re-download"
+
+
+def test_no_zip_and_no_credential_fails_clearly(tmp_path, monkeypatch):
+    """With neither a cached zip nor a credential, it must decline rather than half-proceed."""
+    from study_robust_train import colab_data as cd
+
+    monkeypatch.setattr(cd, "_sh", lambda c: None)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+    assert cd.prepare_celeba(str(tmp_path / "empty_drive"), source="kaggle",
+                             dest=str(tmp_path / "out")) is None
