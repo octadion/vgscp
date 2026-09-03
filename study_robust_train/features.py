@@ -47,6 +47,17 @@ def resnet50_erm_features(paths_by_split: dict, y_by_split: dict, *, train_split
     balancing would distort it). Feature EXTRACTION still covers every split in full; only the
     backbone's training set is subsampled. The §2 worst-group accuracy gate re-verifies sanity.
     """
+    # Cache check BEFORE the torch import, matching clip_image_features and finetune_features.
+    # On a cache hit this function is pure numpy, so a grid re-run over cached features needs
+    # neither a GPU nor torch -- which is what lets the analysis stage run on a CPU runtime.
+    os.makedirs(cache_dir, exist_ok=True)
+    all_paths = [p for sp in paths_by_split for p in paths_by_split[sp]]
+    key = f"resnet50erm_{tag}_{_paths_hash(all_paths)}_{epochs}ep_{seed}".replace("/", "-")
+    cache_path = os.path.join(cache_dir, f"{key}.npz")
+    if os.path.exists(cache_path):
+        z = np.load(cache_path)
+        return {sp: z[sp] for sp in paths_by_split}
+
     try:
         import torch
         import torch.nn as nn
@@ -56,14 +67,6 @@ def resnet50_erm_features(paths_by_split: dict, y_by_split: dict, *, train_split
         from PIL import Image
     except Exception as e:  # pragma: no cover
         raise RuntimeError(f"resnet50_erm_features needs torch/torchvision/PIL (Colab): {e}")
-
-    os.makedirs(cache_dir, exist_ok=True)
-    all_paths = [p for sp in paths_by_split for p in paths_by_split[sp]]
-    key = f"resnet50erm_{tag}_{_paths_hash(all_paths)}_{epochs}ep_{seed}".replace("/", "-")
-    cache_path = os.path.join(cache_dir, f"{key}.npz")
-    if os.path.exists(cache_path):
-        z = np.load(cache_path)
-        return {sp: z[sp] for sp in paths_by_split}
 
     weights = ResNet50_Weights.IMAGENET1K_V2
     tf = transforms.Compose([

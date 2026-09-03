@@ -70,20 +70,26 @@ def run_grid(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep=RHO
                 y_pred = np.argmax(probs, axis=1)
                 _, wg_acc = metrics.worst_group_accuracy(y_pred, yev, gev)
 
-                # §2 per-method worst-group accuracy gate (HARD floor -> exclude)
+                # §2 per-method worst-group accuracy gate. The arm is still EVALUATED and its
+                # records kept, tagged ``gate_status="excluded"``; the verdicts drop them, but they
+                # are in the CSV so the sensitivity analysis reviewers asked for (R2.4) is possible
+                # without a re-run. Previously this `continue`d, so a failed arm left no trace in
+                # the records at all and its influence could not be measured after the fact.
                 floor = worst_group_floor(gd.dataset, method)
+                soft = WG_ACC_SOFT_FLAG.get((gd.dataset, method))
                 if wg_acc < floor:
+                    gate_status = "excluded"
                     excluded.append({"backbone": gd.backbone, "dataset": gd.dataset,
                                      "method": method, "seed": seed, "worst_group_acc": wg_acc,
                                      "floor": floor, "reason": "below per-method worst-group acc floor"})
-                    continue
-                # soft warning band (reported, NOT excluded)
-                soft = WG_ACC_SOFT_FLAG.get((gd.dataset, method))
-                if soft is not None and wg_acc < soft:
+                elif soft is not None and wg_acc < soft:
+                    gate_status = "flagged"          # soft warning band: reported, NOT excluded
                     flagged.append({"backbone": gd.backbone, "dataset": gd.dataset,
                                     "method": method, "seed": seed, "worst_group_acc": wg_acc,
                                     "expected_min": soft,
                                     "reason": "below expected worst-group acc (kept; flag for review)"})
+                else:
+                    gate_status = "kept"
 
                 for score in scores:
                     for rho in rho_sweep:
@@ -92,11 +98,20 @@ def run_grid(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep=RHO
                                            rho_test=rho, split_seed=sp)
                             rec.update({"backbone": gd.backbone, "dataset": gd.dataset,
                                         "method": method, "train_seed": seed,
-                                        "worst_group_acc": wg_acc})
+                                        "worst_group_acc": wg_acc, "gate_status": gate_status,
+                                        "gate_floor": float(floor)})
                             records.append(rec)
 
-    verdicts = build_verdicts(records, scores=scores, rho_sweep=rho_sweep)
-    return {"records": records, "excluded": excluded, "flagged": flagged, "verdicts": verdicts}
+    # Verdicts keep their original meaning -- gated-out arms do not count -- but now by an
+    # explicit filter rather than by the records never existing. ``verdicts_with_excluded`` is the
+    # R2.4 sensitivity analysis: the same verdicts computed WITH the failed arms included.
+    kept = [r for r in records if r.get("gate_status") != "excluded"]
+    verdicts = build_verdicts(kept, scores=scores, rho_sweep=rho_sweep)
+    out = {"records": records, "excluded": excluded, "flagged": flagged, "verdicts": verdicts}
+    if excluded:
+        out["verdicts_with_excluded"] = build_verdicts(records, scores=scores,
+                                                       rho_sweep=rho_sweep)
+    return out
 
 
 def build_verdicts(records, *, scores=SCORES, rho_sweep=RHO_SWEEP) -> dict:
@@ -123,20 +138,31 @@ def build_verdicts(records, *, scores=SCORES, rho_sweep=RHO_SWEEP) -> dict:
 # --------------------------------------------------------------------------------------
 # tidy CSV + RESULTS_study.md emission
 # --------------------------------------------------------------------------------------
-_CSV_COLS = ["backbone", "dataset", "method", "train_seed", "score", "alpha", "rho_cal",
-             "rho_test", "split_seed", "worst_group_acc", "base_top1", "marginal_cov",
-             "worst_group", "worst_group_cov", "cov_gap", "mean_set_size",
+# Every field a downstream re-analysis needs. Omissions here are silent data loss: the writer uses
+# extrasaction="ignore", so a key absent from this list is dropped without a word. That is how a
+# persisted representation run lost its representation/head/calibration columns.
+_CSV_COLS = ["backbone", "dataset", "method", "train_seed", "gate_status", "gate_floor",
+             "score", "calibration", "alpha", "rho_cal", "rho_test", "split_seed", "n_eval",
+             "worst_group_acc", "base_top1", "marginal_cov",
+             "worst_group", "worst_group_cov", "mean_group_cov", "cov_range",
+             "n_cal_worst_group", "cov_gap", "mean_set_size",
              "worst_group_set_size", "set_size_disparity", "div_wasserstein1", "div_ks_stat",
-             "div_ks_pvalue", "rho_test_realized"]
+             "div_ks_pvalue", "rho_cal_realized", "rho_test_realized"]
 
 
 def write_csv(records, path):
     import csv
+    dropped = sorted(set(records[0]) - set(_CSV_COLS)) if records else []
+    blank = sorted(set(_CSV_COLS) - set(records[0])) if records else []
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=_CSV_COLS, extrasaction="ignore")
         w.writeheader()
         for r in records:
             w.writerow(r)
+    if dropped:                       # loud: a dropped column cannot be recovered from the file
+        print(f"[warn] {path}: record fields NOT written (add them to _CSV_COLS): {dropped}")
+    if blank:
+        print(f"[warn] {path}: columns written blank (absent from the records): {blank}")
 
 
 def write_results_md(out: dict, path: str, *, synthetic: bool = False):
@@ -271,8 +297,10 @@ def write_results_md(out: dict, path: str, *, synthetic: bool = False):
 _FLOAT_COLS = {"alpha", "rho_cal", "rho_test", "rho_test_realized", "worst_group_acc", "base_top1",
                "marginal_cov", "worst_group_cov", "cov_gap", "mean_set_size",
                "worst_group_set_size", "set_size_disparity", "div_wasserstein1", "div_ks_stat",
-               "div_ks_pvalue"}
-_INT_COLS = {"train_seed", "split_seed", "worst_group"}
+               "div_ks_pvalue", "gate_floor", "mean_group_cov", "cov_range",
+               "rho_cal_realized"}
+_INT_COLS = {"train_seed", "split_seed", "worst_group", "n_cal_worst_group", "n_eval"}
+_STR_COLS = {"backbone", "dataset", "method", "score", "calibration", "gate_status"}
 
 
 def records_from_csv(path: str) -> list:
@@ -283,7 +311,11 @@ def records_from_csv(path: str) -> list:
         for row in csv.DictReader(f):
             r = {}
             for k, val in row.items():
-                if k in _FLOAT_COLS:
+                if val == "" or val is None:
+                    r[k] = None
+                elif k in _STR_COLS:
+                    r[k] = val
+                elif k in _FLOAT_COLS:
                     r[k] = float(val)
                 elif k in _INT_COLS:
                     r[k] = int(float(val))
