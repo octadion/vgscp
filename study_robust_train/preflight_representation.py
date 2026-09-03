@@ -237,8 +237,18 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
             if miss:
                 print(f"        will TRAIN: {', '.join(miss[:8])}"
                       + (f" (+{len(miss) - 8} more)" if len(miss) > 8 else ""))
-        chk("no arm will silently retrain (all cached)", not miss,
-            f"{len(miss)} would train -- use a GPU runtime, or expect a long CPU run")
+        # The invariant is "do not train when training was not intended", not "everything must be
+        # cached". A notebook whose job IS to train declares it; a protocol change legitimately
+        # invalidates every cache, and blocking that would make the gate an obstacle to doing the
+        # right thing. Only an unexpected miss is fatal -- which is the case that matters, because
+        # on a CPU runtime it starts training with no warning.
+        if ns.get("EXPECT_TRAINING"):
+            if verbose and miss:
+                print(f"        training {len(miss)} arm(s) is expected here (EXPECT_TRAINING)")
+            chk("cache misses are declared, not accidental", True, f"{len(miss)} will train")
+        else:
+            chk("no arm will silently retrain (all cached)", not miss,
+                f"{len(miss)} would train -- set EXPECT_TRAINING=True if that is the intent")
     elif verbose:
         print("  SKIP  cache status -- run from the notebook, after the symlink cell")
     sec("cost and Drive projection")
@@ -270,7 +280,8 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
             cel_h = sub / 60
     if verbose:
         print(f"\n        all runs from scratch : {total_h:.1f} h")
-        print(f"        CelebA only           : {cel_h:.1f} h  (Waterbirds cached)")
+        if "celeba" in run_ds:
+            print(f"        CelebA only           : {cel_h:.1f} h  (Waterbirds cached)")
         print(f"        Drive feature caches  : {drive:.1f} GB  (CACHE_DTYPE={ns['CACHE_DTYPE']})")
     if "celeba" in run_ds:
         # A run that exceeds one session is not an error when it is resumable at arm granularity:
