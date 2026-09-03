@@ -114,6 +114,64 @@ def run_grid(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep=RHO
     return out
 
 
+def run_grid_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES, rho_sweep=RHO_SWEEP,
+                       seeds=(0, 1, 2), n_splits=10, alpha=0.1, method_hp=None,
+                       cell_csv=None, verbose=True) -> dict:
+    """Same grid, one (backbone, dataset) cell at a time, with each cell persisted.
+
+    ``run_grid`` takes a dict of every GridData at once. At four backbones that is 3.3 GB of
+    features held for the whole run, and ``fit_groupdro_ll`` casts the training matrix to float64
+    and standardises it, adding ~5 GB more for the CelebA/ResNet cell -- together enough to exhaust
+    a standard Colab runtime. Here only one cell is live at a time.
+
+    It is also resumable, which ``run_grid`` is not: the full grid measures ~5.5 h and a disconnect
+    at hour five would otherwise lose everything. Each finished cell's records are written to
+    ``cell_csv``, and a cell already present there is skipped on the next pass.
+
+    ``keys`` is a sequence of ``(backbone, dataset)``; ``build_fn(backbone, dataset)`` returns its
+    GridData.
+    """
+    import gc
+    import os
+
+    done, records = set(), []
+    if cell_csv and os.path.exists(cell_csv):
+        records = records_from_csv(cell_csv)
+        done = {(r["backbone"], r["dataset"]) for r in records}
+        if verbose:
+            print(f"[resume] {len(records):,} records for {sorted(done)} already in {cell_csv}")
+
+    excluded, flagged, failed = [], [], []
+    for bb, ds in keys:
+        if (bb, ds) in done:
+            if verbose:
+                print(f"[skip] {bb}/{ds} already done")
+            continue
+        try:
+            gd = build_fn(bb, ds)
+        except Exception as e:                     # noqa: BLE001 - one cell must not sink the run
+            failed.append(((bb, ds), repr(e)))
+            print(f"[FAIL] {bb}/{ds}: {e}", flush=True)
+            continue
+        one = run_grid({(bb, ds): gd}, methods=methods, scores=scores, rho_sweep=rho_sweep,
+                       seeds=seeds, n_splits=n_splits, alpha=alpha, method_hp=method_hp)
+        records += one["records"]
+        excluded += one["excluded"]
+        flagged += one["flagged"]
+        del gd, one
+        gc.collect()
+        if cell_csv:                               # persist after every cell, not at the end
+            write_csv(records, cell_csv)
+        if verbose:
+            print(f"[cell done] {bb}/{ds}: {len(records):,} records total", flush=True)
+
+    kept = [r for r in records if r.get("gate_status") != "excluded"]
+    out = {"records": records, "excluded": excluded, "flagged": flagged, "failed": failed,
+           "verdicts": build_verdicts(kept, scores=scores, rho_sweep=rho_sweep)}
+    if any(r.get("gate_status") == "excluded" for r in records):
+        out["verdicts_with_excluded"] = build_verdicts(records, scores=scores,
+                                                       rho_sweep=rho_sweep)
+    return out
 def build_verdicts(records, *, scores=SCORES, rho_sweep=RHO_SWEEP) -> dict:
     """Compute H1/H2/H3 per (backbone, dataset) from tidy records. Used by run_grid AND reanalyze
     (so Tasks A/B re-run on an existing CSV with no retraining)."""
