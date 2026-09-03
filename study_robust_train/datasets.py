@@ -16,7 +16,8 @@ from __future__ import annotations
 import numpy as np
 
 from data.base import SplitSpec
-from .features import clip_features, l2_normalize, resnet50_erm_features
+from .features import (FROZEN_BACKBONES, clip_features, frozen_features, l2_normalize,
+                       resnet50_erm_features)
 from .grid import GridData
 
 
@@ -48,7 +49,19 @@ def _features_for(backbone: str, paths_by_split: dict, y_by_split: dict, cfg: di
                                      batch_size=rcfg.get("batch_size", 128),
                                      max_train=rcfg.get("max_train"),
                                      cache_dir=rcfg.get("cache_dir", "results/cache_resnet"))
-    raise ValueError(f"unknown backbone {backbone!r}")
+    # Frozen pretrained backbones added for R1.3. Nothing is trained: features are extracted once
+    # per split and cached, so these arms cost one forward pass and then behave exactly like CLIP.
+    if backbone in FROZEN_BACKBONES:
+        fcfg = cfg.get("frozen", {})
+        return {sp: frozen_features(paths_by_split[sp], name=backbone,
+                                    device=fcfg.get("device", "cuda"),
+                                    cache_dir=fcfg.get("cache_dir", "results/cache_frozen"),
+                                    tag=f"{dataset}_{sp}",
+                                    batch_size=fcfg.get("batch_size", 128),
+                                    num_workers=fcfg.get("num_workers", 8))
+                for sp in paths_by_split}
+    raise ValueError(f"unknown backbone {backbone!r}; known: resnet50_erm, "
+                     f"{', '.join(FROZEN_BACKBONES)}")
 
 
 def build_griddata(dataset: str, backbone: str, cfg: dict, seed: int = 0) -> GridData:
