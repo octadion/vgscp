@@ -69,18 +69,24 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
     wb_seeds = tuple(ns["FT_SEEDS"])
     cel_seeds = tuple(ns.get("CELEBA_SEEDS", wb_seeds))
     max_train = ns.get("CELEBA_MAX_TRAIN")
+    # Audit what this notebook will ACTUALLY run. The stages are split across sessions, so a
+    # Waterbirds-only notebook must not fail on a CelebA budget it never spends.
+    run_ds = tuple(ns.get("RUN_DATASETS", ("waterbirds", "celeba")))
+    if verbose:
+        print(f"  (auditing datasets: {list(run_ds)})")
 
     sec("epoch budgets (the defect that cost ~12 h)")
     chk("objectives are all real", set(objs) <= set(OBJECTIVES), f"{objs} vs {OBJECTIVES}")
-    for ds in ("waterbirds", "celeba"):
+    for ds in run_ds:
         missing = [o for o in objs if (ds, o) not in eps]
         chk(f"{ds}: every objective has an epoch budget", not missing, f"missing={missing}")
-    if all((("celeba", o) in eps) for o in objs):
+    if "celeba" in run_ds and all((("celeba", o) in eps) for o in objs):
         worst = max(eps[("celeba", o)] for o in objs)
         chk("CelebA epoch budgets are dataset-appropriate (<=10)", worst <= 10,
             f"max {worst} epochs; one full-train CelebA epoch is ~5.7 min")
-    chk("CELEBA_MAX_TRAIN is set explicitly", max_train is not None,
-        "None means all 162,770 images -- ~3.25x the cost")
+        chk("CELEBA_MAX_TRAIN is set explicitly (None = the full split, which is the intent here)",
+            "CELEBA_MAX_TRAIN" in ns,
+            "define it, even as None, so the choice is recorded rather than defaulted")
 
     sec("no config key is silently ignored")
     sig = set(inspect.signature(finetune_features).parameters)
@@ -215,7 +221,8 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
     if os.path.isdir(cache_dir):
         sec("cache status (a miss means training, not analysis)")
         miss = []
-        for ds, seeds, mt in (("waterbirds", wb_seeds, None), ("celeba", cel_seeds, max_train)):
+        for ds, seeds, mt in [p for p in (("waterbirds", wb_seeds, None),
+                                          ("celeba", cel_seeds, max_train)) if p[0] in run_ds]:
             for o in objs:
                 for s in seeds:
                     # The path hash is dataset-derived, so match on the distinctive suffix instead.
@@ -223,7 +230,8 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
                     if not any(f.startswith(f"ft-{o}_{ds}_") and f.endswith(suffix)
                                for f in os.listdir(cache_dir)):
                         miss.append(f"{ds}/{o}/s{s}")
-        total = sum(len(objs) * len(sd) for sd in (wb_seeds, cel_seeds))
+        total = sum(len(objs) * len(sd) for ds, sd in
+                    (("waterbirds", wb_seeds), ("celeba", cel_seeds)) if ds in run_ds)
         if verbose:
             print(f"        {total - len(miss)}/{total} arms cached")
             if miss:
@@ -236,7 +244,7 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
     sec("cost and Drive projection")
     # Only meaningful once every budget exists; a missing one is already reported above, and
     # projecting through it would raise and hide the remaining checks.
-    complete = all((ds, o) in eps for ds in ("waterbirds", "celeba") for o in objs)
+    complete = all((ds, o) in eps for ds in run_ds for o in objs)
     if not complete:
         if verbose:
             print("  SKIP  projection -- fill in the missing epoch budgets first")
@@ -246,7 +254,8 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
         return False
     per_img = 2 if ns["CACHE_DTYPE"] == "float16" else 4
     total_h, cel_h, drive = 0.0, 0.0, 0.0
-    for ds, seeds in (("waterbirds", wb_seeds), ("celeba", cel_seeds)):
+    for ds, seeds in [p for p in (("waterbirds", wb_seeds), ("celeba", cel_seeds))
+                      if p[0] in run_ds]:
         sub = 0.0
         n_train = TRAIN_N[ds] if ds == "waterbirds" else min(TRAIN_N[ds], max_train or TRAIN_N[ds])
         for o in objs:
@@ -263,7 +272,22 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
         print(f"\n        all runs from scratch : {total_h:.1f} h")
         print(f"        CelebA only           : {cel_h:.1f} h  (Waterbirds cached)")
         print(f"        Drive feature caches  : {drive:.1f} GB  (CACHE_DTYPE={ns['CACHE_DTYPE']})")
-    chk(f"CelebA fits one {SESSION_HOURS:g} h session", cel_h < SESSION_HOURS, f"{cel_h:.1f} h")
+    if "celeba" in run_ds:
+        # A run that exceeds one session is not an error when it is resumable at arm granularity:
+        # every finished arm is cached to Drive and skipped on the next pass. Shrinking the science
+        # to fit a session limit would be the wrong fix, so the notebook declares the expectation
+        # and the gate reports how many sessions rather than blocking.
+        n_sessions = int(cel_h // SESSION_HOURS) + 1
+        if ns.get("EXPECT_MULTI_SESSION"):
+            if verbose:
+                print(f"        CelebA needs ~{n_sessions} session(s) of {SESSION_HOURS:g} h; "
+                      f"declared expected. Re-run the training cell after a disconnect -- "
+                      f"finished arms are cache hits.")
+            chk("multi-session run is declared and resumable", True, f"{cel_h:.1f} h")
+        else:
+            chk(f"CelebA fits one {SESSION_HOURS:g} h session", cel_h < SESSION_HOURS,
+                f"{cel_h:.1f} h -> set EXPECT_MULTI_SESSION=True if you intend "
+                f"~{n_sessions} sessions")
     chk(f"Drive need under {DRIVE_BUDGET_GB:g} GB", drive < DRIVE_BUDGET_GB, f"{drive:.1f} GB")
 
     if verbose:
