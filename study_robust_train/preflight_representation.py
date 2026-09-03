@@ -166,7 +166,10 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
                        ("groupdro_eta", {"groupdro_eta": 0.9}), ("seed", {"seed": 7}),
                        ("max_train", {"max_train": 123}),
                        ("init_weights", {"init_weights": "IMAGENET1K_V1"}),
-                       ("amp", {"amp": False})):
+                       ("amp", {"amp": False}),
+                       ("select_by", {"select_by": ""}),
+                       ("val_frac", {"val_frac": 0.25}),
+                       ("val_min_per_group", {"val_min_per_group": 40})):
         chk(f"changing {name} changes the cache key",
             cache_key("groupdro", "waterbirds", P, **{**base_kw, **over}) != base)
     ck = set(inspect.signature(cache_key).parameters)
@@ -188,15 +191,19 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
                          optimizer=h.get("optimizer", "adam"),
                          weight_decay=h.get("weight_decay", 0.0),
                          groupdro_eta=h.get("groupdro_eta", 0.01),
-                         amp=ns.get("AMP", True))
+                         amp=ns.get("AMP", True),
+                         select_by=ns.get("SELECT_BY", "val_worst_group"),
+                         val_frac=ns.get("VAL_FRAC", 0.1),
+                         val_min_per_group=ns.get("VAL_MIN_PER_GROUP", 15))
     if verbose:
         for ds, mt in (("waterbirds", None), ("celeba", max_train)):
             for o in objs:
                 print(f"        {ds}/{o}/s0 -> ...{key(ds, o, 0, mt).split('_', 3)[3]}")
-    # The last good Waterbirds run produced this suffix; if it still matches, that cache is reused.
-    chk("Waterbirds erm/s0 key matches the last good run -> cache HIT",
-        key("waterbirds", "erm", 0, None).endswith(
-            "in1kV2_10ep_lr0.001_bs128_wd0_adam_mtall_s0"))
+    # No hardcoded historical suffix here. Pinning one made the gate fail the moment a *correct*
+    # protocol change moved the key (adding model selection), which is the opposite of what a gate
+    # should do. Whether a cache is actually reused is answered below by looking at the disk.
+    if verbose:
+        print("        (whether these are reused is answered by the cache-status section below)")
     if max_train:
         chk("CelebA keys carry the subsample -> the aborted full-train run is not reused",
             f"mt{int(max_train)}" in key("celeba", "erm", 0, max_train))
