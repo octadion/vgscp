@@ -88,6 +88,18 @@ def audit(ns: dict, *, verbose: bool = True) -> bool:
             "CELEBA_MAX_TRAIN" in ns,
             "define it, even as None, so the choice is recorded rather than defaulted")
 
+    sec("training-budget protocol")
+    sel = ns.get("SELECT_BY", "val_worst_group")
+    chk("SELECT_BY is a known protocol", sel in ("", "val_worst_group"), repr(sel))
+    if verbose:
+        print("        protocol: " + ("last epoch (no model selection)" if not sel
+                                      else f"select on {sel} (val_frac={ns.get('VAL_FRAC')}, "
+                                           f"min/group={ns.get('VAL_MIN_PER_GROUP')})"))
+        if sel:
+            print("        NOTE: selection needs a validation slice with enough minority examples. "
+                  "On Waterbirds it is ~14 (SE ~0.13) and the argmax is noise-driven; the run "
+                  "prints the SE per arm.")
+
     sec("no config key is silently ignored")
     sig = set(inspect.signature(finetune_features).parameters)
     hp_keys = set(itertools.chain.from_iterable(d.keys() for d in hp.values()))
