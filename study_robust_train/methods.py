@@ -81,7 +81,11 @@ class SoftmaxGroupDRO:
         self.classes_ = classes_
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        Z = (np.asarray(X, dtype=np.float64) - self.mean) / self.std
+        # Same one-copy, in-place standardisation as the fitter: `(asarray(X) - m) / s` holds two
+        # float64 copies of the eval matrix at once. Elementwise ops and order are unchanged.
+        Z = np.asarray(X, dtype=np.float64, copy=True)
+        Z -= self.mean
+        Z /= self.std
         return _softmax(Z @ self.W + self.b)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -93,19 +97,24 @@ def fit_groupdro_ll(X: np.ndarray, y: np.ndarray, group: np.ndarray, *, lr: floa
                     seed: int = 0) -> SoftmaxGroupDRO:
     """Train a last-layer softmax head with online GroupDRO. Full-batch gradient descent."""
     assert_l2_normalized(X, tag="GroupDRO features")
-    X = np.asarray(X, dtype=np.float64)
+    # ONE float64 working copy, standardised in place. Writing `X = asarray(...); Z = (X-m)/s`
+    # holds two full copies for the whole optimisation, and X is never read again -- 4.96 GB of
+    # the 6.21 GB peak on CelebA's 162,770 x 2048 train split, which is what exhausted RAM.
+    # The elementwise operations and their order are unchanged, so the result is bit-identical.
+    Z = np.asarray(X, dtype=np.float64, copy=True)
     y = np.asarray(y)
     g = np.asarray(group)
     classes_ = np.array(sorted(np.unique(y)))
     cidx = {c: i for i, c in enumerate(classes_)}
     yk = np.array([cidx[v] for v in y])
-    n, d = X.shape
+    n, d = Z.shape
     C = len(classes_)
 
-    mean = X.mean(axis=0)
-    std = X.std(axis=0)
+    mean = Z.mean(axis=0)
+    std = Z.std(axis=0)
     std[std == 0] = 1.0
-    Z = (X - mean) / std
+    Z -= mean
+    Z /= std
 
     groups = np.array(sorted(np.unique(g)))
     G = len(groups)
