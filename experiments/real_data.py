@@ -90,7 +90,17 @@ def head_probs(clf, X: np.ndarray, n_classes: int) -> np.ndarray:
 def assert_l2_normalized(X: np.ndarray, tag: str = "features", tol: float = 1e-2) -> None:
     """Guard for confound #1 (run spec v2 §2a): CLIP features MUST be L2-normalized before a linear
     head, or the probe collapses to ~chance. Raises with a clear diagnosis if not unit-norm."""
-    norms = np.linalg.norm(np.asarray(X, dtype=np.float64), axis=1)
+    # Chunked, because `np.linalg.norm(np.asarray(X, dtype=np.float64), axis=1)` materialises a
+    # full float64 copy of X *and* norm's own temporary -- measured at 4.15x the float32 input, or
+    # ~5.5 GB for CelebA's 162,770 x 2048. This guard is the first line of every method in
+    # methods.py, so that transient was paid five times per grid cell and is what exhausted RAM.
+    # Row norms are independent, so this is the same arithmetic in the same dtype, and the result
+    # is bit-identical -- verified against the unchunked expression.
+    X = np.asarray(X)
+    norms = np.empty(X.shape[0], dtype=np.float64)
+    for i in range(0, X.shape[0], 2048):
+        blk = X[i:i + 2048]
+        norms[i:i + 2048] = np.linalg.norm(np.asarray(blk, dtype=np.float64), axis=1)
     if X.shape[0] and not np.allclose(norms, 1.0, atol=tol):
         raise ValueError(
             f"[head-fix §2a] {tag} are NOT L2-normalized (mean‖x‖={norms.mean():.3f}, "

@@ -97,10 +97,10 @@ def fit_groupdro_ll(X: np.ndarray, y: np.ndarray, group: np.ndarray, *, lr: floa
                     seed: int = 0) -> SoftmaxGroupDRO:
     """Train a last-layer softmax head with online GroupDRO. Full-batch gradient descent."""
     assert_l2_normalized(X, tag="GroupDRO features")
-    # ONE float64 working copy, standardised in place. Writing `X = asarray(...); Z = (X-m)/s`
-    # holds two full copies for the whole optimisation, and X is never read again -- 4.96 GB of
-    # the 6.21 GB peak on CelebA's 162,770 x 2048 train split, which is what exhausted RAM.
-    # The elementwise operations and their order are unchanged, so the result is bit-identical.
+    # ONE float64 working copy, standardised in place. `X = asarray(...); Z = (X-m)/s` holds two
+    # full copies for the whole optimisation and X is never read again. Measured, this copy is
+    # 2.00x the float32 input; combined with the std temporary removed below it took this arm from
+    # 4.30x to 2.29x. The elementwise ops and their order are unchanged, so this is bit-identical.
     Z = np.asarray(X, dtype=np.float64, copy=True)
     y = np.asarray(y)
     g = np.asarray(group)
@@ -110,10 +110,15 @@ def fit_groupdro_ll(X: np.ndarray, y: np.ndarray, group: np.ndarray, *, lr: floa
     n, d = Z.shape
     C = len(classes_)
 
+    # `Z.std(axis=0)` builds `Z - mean` as a full float64 temporary and squares it in place --
+    # another 2x the input, measured, and together with Z itself that is the 4.00x that exhausted
+    # RAM. Centring first lets the same sum of squares be streamed by einsum with no temporary.
+    # numpy's std IS sqrt(sum((Z-mean)^2)/n), so the summands and their order are unchanged and the
+    # result is bit-identical -- verified against Z.std(axis=0) at three shapes.
     mean = Z.mean(axis=0)
-    std = Z.std(axis=0)
-    std[std == 0] = 1.0
     Z -= mean
+    std = np.sqrt(np.einsum("ij,ij->j", Z, Z) / n)
+    std[std == 0] = 1.0
     Z /= std
 
     groups = np.array(sorted(np.unique(g)))

@@ -149,9 +149,9 @@ def run_grid_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES, rho_sw
     """Same grid, one (backbone, dataset) cell at a time, with each cell persisted.
 
     ``run_grid`` takes a dict of every GridData at once. At four backbones that is 3.3 GB of
-    features held for the whole run, and ``fit_groupdro_ll`` casts the training matrix to float64
-    and standardises it, adding ~5 GB more for the CelebA/ResNet cell -- together enough to exhaust
-    a standard Colab runtime. Here only one cell is live at a time.
+    features held for the whole run, on top of the ~3.0 GB an arm transiently needs to fit a head
+    on CelebA's 162,770 x 2048 train split -- together enough to exhaust a standard Colab runtime.
+    Here only one cell is live at a time, and the loop reports its own peak RSS per cell.
 
     It is also resumable, which ``run_grid`` is not: the full grid measures ~5.5 h and a disconnect
     at hour five would otherwise lose everything. Each finished cell's records are written to
@@ -162,6 +162,34 @@ def run_grid_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES, rho_sw
     """
     import gc
     import os
+    import threading
+    import time
+
+    # Memory telemetry. Three separate RAM crashes on the CelebA cells were each diagnosed by
+    # reasoning about which arrays were live, and the first two diagnoses were WRONG -- the real
+    # cost was a float64 upcast inside the L2 guard and a temporary inside numpy's std. Guessing
+    # cost several multi-hour runs, so the loop now reports what it actually used.
+    def _rss_gib():
+        try:
+            import psutil
+            return psutil.Process().memory_info().rss / 2**30
+        except Exception:
+            try:                                   # Linux fallback: no psutil needed
+                with open("/proc/self/statm") as fh:
+                    return int(fh.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2**30
+            except Exception:
+                return float("nan")
+
+    peak = [_rss_gib()]
+    _stop = threading.Event()
+
+    def _sample():
+        while not _stop.is_set():
+            peak[0] = max(peak[0], _rss_gib())
+            _stop.wait(0.25)
+
+    _sampler = threading.Thread(target=_sample, daemon=True)
+    _sampler.start()
 
     done, records = set(), []
     if cell_csv and os.path.exists(cell_csv):
@@ -190,7 +218,12 @@ def run_grid_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES, rho_sw
         if cell_csv:                               # persist after every cell, not at the end
             write_csv(records, cell_csv)
         if verbose:
-            print(f"[cell done] {bb}/{ds}: {len(records):,} records total", flush=True)
+            print(f"[cell done] {bb}/{ds}: {len(records):,} records total  "
+                  f"(rss {_rss_gib():.2f} GiB, peak {peak[0]:.2f} GiB)", flush=True)
+        peak[0] = _rss_gib()                       # reset so the next cell reports its own peak
+
+    _stop.set()
+    _sampler.join(timeout=2)
 
     # Derive the gate lists FROM THE RECORDS, not by accumulating them as cells finish. On a
     # resumed run the finished cells come back from the CSV and never pass through the loop, so an
