@@ -50,8 +50,23 @@ class GridData:
     n_classes: int
 
 
+def _rss_gib() -> float:
+    """Resident set size in GiB, or nan. Used for memory telemetry, never for control flow."""
+    import os
+    try:
+        import psutil
+        return psutil.Process().memory_info().rss / 2**30
+    except Exception:
+        try:                                       # Linux fallback: no psutil needed
+            with open("/proc/self/statm") as fh:
+                return int(fh.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2**30
+        except Exception:
+            return float("nan")
+
+
 def run_grid(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep=RHO_SWEEP,
-             seeds=(0, 1, 2), n_splits=10, alpha=0.1, method_hp=None) -> dict:
+             seeds=(0, 1, 2), n_splits=10, alpha=0.1, method_hp=None,
+             mem_trace=False) -> dict:
     """Run the full last-layer grid over the provided (backbone, dataset) GridData objects.
 
     Returns {"records": [...], "excluded": [...], "verdicts": {key: {h1,h2,h3}}}. ``method_hp``
@@ -65,8 +80,20 @@ def run_grid(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep=RHO
         for method in methods:
             for seed in seeds:
                 hp = method_hp.get(method, {})
+                # Printed BEFORE the fit and flushed: an OOM kill leaves no traceback, so the last
+                # line on stdout is the only evidence of which arm was in flight and how much was
+                # already resident. Telemetry only -- it never affects what is computed.
+                if mem_trace:
+                    print(f"    [mem] {gd.backbone}/{gd.dataset} {method}/s{seed} "
+                          f"pre-fit rss={_rss_gib():.2f} GiB", flush=True)
                 head = fit_method(method, gd.train, gd.reweight, seed=seed, **hp)
+                if mem_trace:
+                    print(f"    [mem] {gd.backbone}/{gd.dataset} {method}/s{seed} "
+                          f"post-fit rss={_rss_gib():.2f} GiB", flush=True)
                 probs = head_probs(head, Xev, gd.n_classes)
+                if mem_trace:
+                    print(f"    [mem] {gd.backbone}/{gd.dataset} {method}/s{seed} "
+                          f"post-probs rss={_rss_gib():.2f} GiB", flush=True)
                 y_pred = np.argmax(probs, axis=1)
                 _, wg_acc = metrics.worst_group_accuracy(y_pred, yev, gev)
 
@@ -169,17 +196,6 @@ def run_grid_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES, rho_sw
     # reasoning about which arrays were live, and the first two diagnoses were WRONG -- the real
     # cost was a float64 upcast inside the L2 guard and a temporary inside numpy's std. Guessing
     # cost several multi-hour runs, so the loop now reports what it actually used.
-    def _rss_gib():
-        try:
-            import psutil
-            return psutil.Process().memory_info().rss / 2**30
-        except Exception:
-            try:                                   # Linux fallback: no psutil needed
-                with open("/proc/self/statm") as fh:
-                    return int(fh.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2**30
-            except Exception:
-                return float("nan")
-
     peak = [_rss_gib()]
     _stop = threading.Event()
 
@@ -210,8 +226,11 @@ def run_grid_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES, rho_sw
             failed.append(((bb, ds), repr(e)))
             print(f"[FAIL] {bb}/{ds}: {e}", flush=True)
             continue
+        if verbose:
+            print(f"    [mem] {bb}/{ds} GridData built, rss={_rss_gib():.2f} GiB", flush=True)
         one = run_grid({(bb, ds): gd}, methods=methods, scores=scores, rho_sweep=rho_sweep,
-                       seeds=seeds, n_splits=n_splits, alpha=alpha, method_hp=method_hp)
+                       seeds=seeds, n_splits=n_splits, alpha=alpha, method_hp=method_hp,
+                       mem_trace=verbose)
         records += one["records"]
         del gd, one
         gc.collect()
