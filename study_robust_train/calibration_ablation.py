@@ -48,11 +48,21 @@ def run_ablation(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep
                 head = fit_method(method, gd.train, gd.reweight, seed=seed, **method_hp.get(method, {}))
                 probs = head_probs(head, Xev, gd.n_classes)
                 _, wg_acc = metrics.worst_group_accuracy(np.argmax(probs, axis=1), yev, gev)
-                if wg_acc < worst_group_floor(gd.dataset, method):
+                # Evaluate the arm and KEEP its records, tagged, exactly as run_grid does. This
+                # previously `continue`d, so a gated arm left no trace and its influence could not
+                # be measured afterwards. That matters more here than in the grid: c1_verdict
+                # requires every method to be present, and ERM -- the method whose marginal-split
+                # failure IS the claim -- is gated out on CelebA for the frozen SSL backbones.
+                floor = worst_group_floor(gd.dataset, method)
+                soft = WG_ACC_SOFT_FLAG.get((gd.dataset, method))
+                if wg_acc < floor:
+                    gate_status = "excluded"
                     excluded.append({"backbone": gd.backbone, "dataset": gd.dataset, "method": method,
-                                     "seed": seed, "worst_group_acc": wg_acc,
-                                     "floor": worst_group_floor(gd.dataset, method)})
-                    continue
+                                     "seed": seed, "worst_group_acc": wg_acc, "floor": floor})
+                elif soft is not None and wg_acc < soft:
+                    gate_status = "flagged"
+                else:
+                    gate_status = "kept"
                 for cal in calibrations:
                     for score in scores:
                         for rho in rho_sweep:
@@ -61,11 +71,18 @@ def run_ablation(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep
                                                rho_test=rho, split_seed=sp, calibration=cal)
                                 rec.update({"backbone": gd.backbone, "dataset": gd.dataset,
                                             "method": method, "train_seed": seed,
-                                            "worst_group_acc": wg_acc})
+                                            "worst_group_acc": wg_acc,
+                                            "gate_status": gate_status,
+                                            "gate_floor": float(floor)})
                                 records.append(rec)
-    verdicts = _build_verdicts(records, scores=scores, rho_sweep=rho_sweep, alpha=alpha)
-    return {"records": records, "excluded": excluded, "verdicts": verdicts, "alpha": alpha,
-            "calibrations": list(calibrations), "rho_sweep": list(rho_sweep)}
+    kept = [r for r in records if r.get("gate_status") != "excluded"]
+    verdicts = _build_verdicts(kept, scores=scores, rho_sweep=rho_sweep, alpha=alpha)
+    out = {"records": records, "excluded": excluded, "verdicts": verdicts, "alpha": alpha,
+           "calibrations": list(calibrations), "rho_sweep": list(rho_sweep)}
+    if any(r.get("gate_status") == "excluded" for r in records):
+        out["verdicts_with_excluded"] = _build_verdicts(records, scores=scores,
+                                                        rho_sweep=rho_sweep, alpha=alpha)
+    return out
 
 
 def _build_verdicts(records, *, scores, rho_sweep, alpha) -> dict:
@@ -164,16 +181,34 @@ def c3_verdict(recs, methods, *, alpha=0.1, scores=SCORES, rho_sweep=RHO_SWEEP) 
 # ---------------------------------------------------------------------------------------
 _CSV_COLS = ["backbone", "dataset", "method", "train_seed", "calibration", "score", "alpha",
              "rho_cal", "rho_test", "split_seed", "worst_group_acc", "base_top1", "marginal_cov",
-             "worst_group_cov", "cov_gap", "mean_set_size", "worst_group_set_size"]
+             "worst_group_cov", "cov_gap", "mean_set_size", "worst_group_set_size",
+             "gate_status", "gate_floor",
+             # Kept because `evaluate` already computes them and dropping them cost a re-run once.
+             # `n_cal_worst_group` in particular is what the Mondrian small-group question needs:
+             # a group-conditional threshold fitted on very few calibration points is exactly the
+             # regime the reviewers asked about, and it cannot be checked after the fact.
+             "n_eval", "worst_group", "mean_group_cov", "cov_range", "n_cal_worst_group",
+             "set_size_disparity", "div_wasserstein1", "div_ks_stat", "div_ks_pvalue",
+             "rho_cal_realized", "rho_test_realized"]
 
 
 def write_csv(records, path):
+    """Write records, warning about any field this schema would silently drop.
+
+    ``extrasaction="ignore"`` once discarded seven identifying columns without a word and made a
+    finished multi-hour run's CSV unusable. The writer still ignores extras -- that is what keeps
+    old and new records mergeable -- but it no longer does so quietly.
+    """
     import csv
+    if records:
+        dropped = sorted({k for r in records for k in r} - set(_CSV_COLS))
+        if dropped:
+            print(f"[write_csv] WARNING: not in the schema, dropped: {dropped}")
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=_CSV_COLS, extrasaction="ignore")
         w.writeheader()
         for r in records:
-            w.writerow(r)
+            w.writerow({**{"gate_status": "kept", "gate_floor": ""}, **r})
 
 
 _FLOAT_COLS = {"alpha", "rho_cal", "rho_test", "worst_group_acc", "base_top1", "marginal_cov",
@@ -209,6 +244,70 @@ def reanalyze(csv_path: str, *, md_path: str = "CALIBRATION_ABLATION.md",
            "verdicts": _build_verdicts(records, scores=scores, rho_sweep=rho_sweep, alpha=alpha)}
     figs = make_c1_figure(out, figdir) if make_figs else []
     write_calibration_ablation_md(out, md_path, fig_paths=figs)
+    return out
+
+
+def run_ablation_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES,
+                           rho_sweep=RHO_SWEEP, calibrations=CALIBRATIONS, seeds=(0, 1, 2),
+                           n_splits=10, alpha=0.1, method_hp=None, cell_csv=None, verbose=True):
+    """``run_ablation`` one (backbone, dataset) cell at a time, persisting each finished cell.
+
+    Same reasons as ``run_grid_streaming``. Holding every GridData at once is what exhausted RAM on
+    the grid, and this ablation evaluates three calibration policies rather than one, so it runs
+    longer and a disconnect costs more. ``keys`` is a sequence of ``(backbone, dataset)``;
+    ``build_fn(backbone, dataset)`` returns its GridData. A cell already present in ``cell_csv`` is
+    skipped, so re-running the cell continues where it stopped.
+    """
+    import gc
+
+    from .grid import _release_memory, _rss_gib
+
+    done, records = set(), []
+    if cell_csv and os.path.exists(cell_csv):
+        records = records_from_csv(cell_csv)
+        done = {(r["backbone"], r["dataset"]) for r in records}
+        if verbose:
+            print(f"[resume] {len(records):,} records for {sorted(done)} already in {cell_csv}")
+
+    failed = []
+    for bb, ds in keys:
+        if (bb, ds) in done:
+            if verbose:
+                print(f"[skip] {bb}/{ds} already done", flush=True)
+            continue
+        try:
+            gd = build_fn(bb, ds)
+        except Exception as e:                     # noqa: BLE001 - one cell must not sink the run
+            failed.append(((bb, ds), repr(e)))
+            print(f"[FAIL] {bb}/{ds}: {e}", flush=True)
+            continue
+        one = run_ablation({(bb, ds): gd}, methods=methods, scores=scores, rho_sweep=rho_sweep,
+                           calibrations=calibrations, seeds=seeds, n_splits=n_splits,
+                           alpha=alpha, method_hp=method_hp)
+        records += one["records"]
+        del gd, one
+        _release_memory()
+        gc.collect()
+        if cell_csv:
+            write_csv(records, cell_csv)
+        if verbose:
+            print(f"[cell done] {bb}/{ds}: {len(records):,} records  (rss {_rss_gib():.2f} GiB)",
+                  flush=True)
+
+    kept = [r for r in records if r.get("gate_status") != "excluded"]
+    out = {"records": records, "failed": failed, "alpha": alpha,
+           "calibrations": list(calibrations), "rho_sweep": list(rho_sweep),
+           "verdicts": _build_verdicts(kept, scores=scores, rho_sweep=rho_sweep, alpha=alpha)}
+    # Rebuilt FROM the records so a resumed run is correct: finished cells come back from CSV and
+    # never pass through the loop, so an accumulated list would report zero excluded arms.
+    out["excluded"] = [{"backbone": r["backbone"], "dataset": r["dataset"], "method": r["method"],
+                        "seed": r["train_seed"], "worst_group_acc": r["worst_group_acc"],
+                        "floor": r.get("gate_floor")}
+                       for r in {(r["backbone"], r["dataset"], r["method"], r["train_seed"]): r
+                                 for r in records if r.get("gate_status") == "excluded"}.values()]
+    if out["excluded"]:
+        out["verdicts_with_excluded"] = _build_verdicts(records, scores=scores,
+                                                        rho_sweep=rho_sweep, alpha=alpha)
     return out
 
 

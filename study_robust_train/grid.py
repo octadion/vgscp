@@ -50,6 +50,28 @@ class GridData:
     n_classes: int
 
 
+def _release_memory() -> None:
+    """Drop freed arenas back to the OS after an arm. Telemetry-driven, not speculative.
+
+    Per-arm RSS on Colab grew by 2.49 GiB per ERM seed and never fell -- exactly 2x the float32
+    train matrix, i.e. the float64 copy sklearn makes. It does NOT grow on Windows with the same
+    code and data shape, so the cause is the platform allocator (glibc neither returning nor
+    reusing the freed block) and/or reference cycles that the generational GC had not reached,
+    whose thresholds count objects rather than bytes.
+
+    ``gc.collect()`` covers the cycles; ``malloc_trim`` covers the arenas and is a glibc-only
+    extension, so it is attempted and ignored elsewhere. Both are pure hygiene: nothing that is
+    computed depends on when memory is released.
+    """
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:                              # not glibc (Windows/macOS) -- gc alone
+        pass
+
+
 def _rss_gib() -> float:
     """Resident set size in GiB, or nan. Used for memory telemetry, never for control flow."""
     import os
@@ -91,6 +113,11 @@ def run_grid(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep=RHO
                     print(f"    [mem] {gd.backbone}/{gd.dataset} {method}/s{seed} "
                           f"post-fit rss={_rss_gib():.2f} GiB", flush=True)
                 probs = head_probs(head, Xev, gd.n_classes)
+                # The head is dead once `probs` exists -- every record below is derived from
+                # `probs`, `yev` and `gev` alone. Releasing it here rather than at the next
+                # reassignment is what keeps the arms from accumulating.
+                del head
+                _release_memory()
                 if mem_trace:
                     print(f"    [mem] {gd.backbone}/{gd.dataset} {method}/s{seed} "
                           f"post-probs rss={_rss_gib():.2f} GiB", flush=True)
@@ -128,6 +155,8 @@ def run_grid(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep=RHO
                                         "worst_group_acc": wg_acc, "gate_status": gate_status,
                                         "gate_floor": float(floor)})
                             records.append(rec)
+                del probs
+                _release_memory()
 
     # Verdicts keep their original meaning -- gated-out arms do not count -- but now by an
     # explicit filter rather than by the records never existing. ``verdicts_with_excluded`` is the
