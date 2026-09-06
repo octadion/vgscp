@@ -31,7 +31,7 @@ from experiments.shift_resampler import resample_to_rho, split_pool
 
 from .calibration_ablation import _agg
 from .conformal_eval import RHO_CAL
-from .grid import worst_group_floor
+from .grid import WG_ACC_SOFT_FLAG, _release_memory, _rss_gib, worst_group_floor
 from .heads import fit_species_head, head_probs
 from .methods import METHODS, fit_method
 from .recoverability import spurious_from_group
@@ -84,7 +84,7 @@ def _eval_abc(probs, y, group, ahat, *, score, alpha, rho_test, rho_cal=RHO_CAL,
 
 def run_predicted_group(data_by_key: dict, *, methods=METHODS, scores=SCORES, seeds=(0, 1, 2),
                         n_splits=10, alpha=0.1, rho_test=0.95, rho_cal=RHO_CAL,
-                        method_hp=None) -> dict:
+                        method_hp=None, mem_trace=False) -> dict:
     method_hp = method_hp or {}
     records, excluded = [], []
     for key, gd in data_by_key.items():
@@ -101,15 +101,27 @@ def run_predicted_group(data_by_key: dict, *, methods=METHODS, scores=SCORES, se
             probes[seed] = ((ap >= 0.5).astype(int), auroc)
         for method in methods:
             for seed in seeds:
+                if mem_trace:
+                    print(f"    [mem] {gd.backbone}/{gd.dataset} {method}/s{seed} "
+                          f"pre-fit rss={_rss_gib():.2f} GiB", flush=True)
                 head = fit_method(method, gd.train, gd.reweight, seed=seed, **method_hp.get(method, {}))
                 probs = head_probs(head, Xev, gd.n_classes)
                 from . import metrics as _m
                 _, wg_acc = _m.worst_group_accuracy(np.argmax(probs, axis=1), yev, gev)
-                if wg_acc < worst_group_floor(gd.dataset, method):
+                # Evaluate and KEEP the arm's records, tagged, as run_grid and run_ablation now do.
+                # This `continue`d before, so a gated arm left no trace at all -- and here that bites
+                # hardest: `_verdict` needs the methods present, and ERM is gated out on CelebA for
+                # the frozen SSL backbones, so those cells would silently lose their headline method.
+                floor = worst_group_floor(gd.dataset, method)
+                soft = WG_ACC_SOFT_FLAG.get((gd.dataset, method))
+                if wg_acc < floor:
+                    gate_status = "excluded"
                     excluded.append({"backbone": gd.backbone, "dataset": gd.dataset, "method": method,
-                                     "seed": seed, "worst_group_acc": wg_acc,
-                                     "floor": worst_group_floor(gd.dataset, method)})
-                    continue
+                                     "seed": seed, "worst_group_acc": wg_acc, "floor": floor})
+                elif soft is not None and wg_acc < soft:
+                    gate_status = "flagged"
+                else:
+                    gate_status = "kept"
                 ahat, auroc = probes[seed]
                 for score in scores:
                     for sp in range(n_splits):
@@ -121,14 +133,94 @@ def run_predicted_group(data_by_key: dict, *, methods=METHODS, scores=SCORES, se
                                             "method": method, "train_seed": seed, "condition": cond,
                                             "score": score, "alpha": alpha, "rho_cal": rho_cal,
                                             "rho_test": rho_test, "split_seed": sp, "probe_auroc": auroc,
-                                            "worst_group_acc": wg_acc, **r})
-    verdicts = {}
-    for key in sorted({(r["backbone"], r["dataset"]) for r in records}):
-        recs = [r for r in records if (r["backbone"], r["dataset"]) == key]
-        verdicts[key] = _verdict(recs, sorted({r["method"] for r in recs}), alpha=alpha,
-                                 scores=scores, rho_test=rho_test)
-    return {"records": records, "excluded": excluded, "verdicts": verdicts, "alpha": alpha,
-            "scores": list(scores), "rho_test": rho_test}
+                                            "worst_group_acc": wg_acc,
+                                            "gate_status": gate_status,
+                                            "gate_floor": float(floor), **r})
+                del head, probs
+                _release_memory()
+
+    def _verdicts_over(recs_all):
+        out = {}
+        for key in sorted({(r["backbone"], r["dataset"]) for r in recs_all}):
+            recs = [r for r in recs_all if (r["backbone"], r["dataset"]) == key]
+            out[key] = _verdict(recs, sorted({r["method"] for r in recs}), alpha=alpha,
+                                scores=scores, rho_test=rho_test)
+        return out
+
+    kept = [r for r in records if r.get("gate_status") != "excluded"]
+    out = {"records": records, "excluded": excluded, "verdicts": _verdicts_over(kept),
+           "alpha": alpha, "scores": list(scores), "rho_test": rho_test}
+    if any(r.get("gate_status") == "excluded" for r in records):
+        out["verdicts_with_excluded"] = _verdicts_over(records)
+    return out
+
+
+def run_predicted_group_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES,
+                                  seeds=(0, 1, 2), n_splits=10, alpha=0.1, rho_test=0.95,
+                                  rho_cal=RHO_CAL, method_hp=None, cell_csv=None, verbose=True):
+    """One (backbone, dataset) cell at a time, each persisted, resumable.
+
+    Same reasons as the grid and the ablation: holding every GridData at once exhausted RAM, and a
+    multi-hour run that writes nothing until the end loses everything on a disconnect. A cell
+    already in ``cell_csv`` is skipped, so re-running this continues where it stopped.
+    """
+    import gc
+
+    done, records = set(), []
+    if cell_csv and os.path.exists(cell_csv):
+        records = records_from_csv(cell_csv)
+        done = {(r["backbone"], r["dataset"]) for r in records}
+        if verbose:
+            print(f"[resume] {len(records):,} records for {sorted(done)} already in {cell_csv}")
+
+    failed = []
+    for bb, ds in keys:
+        if (bb, ds) in done:
+            if verbose:
+                print(f"[skip] {bb}/{ds} already done", flush=True)
+            continue
+        try:
+            gd = build_fn(bb, ds)
+        except Exception as e:                     # noqa: BLE001 - one cell must not sink the run
+            failed.append(((bb, ds), repr(e)))
+            print(f"[FAIL] {bb}/{ds}: {e}", flush=True)
+            continue
+        if verbose:
+            print(f"    [mem] {bb}/{ds} GridData built, rss={_rss_gib():.2f} GiB", flush=True)
+        one = run_predicted_group({(bb, ds): gd}, methods=methods, scores=scores, seeds=seeds,
+                                  n_splits=n_splits, alpha=alpha, rho_test=rho_test,
+                                  rho_cal=rho_cal, method_hp=method_hp, mem_trace=verbose)
+        records += one["records"]
+        del gd, one
+        _release_memory()
+        gc.collect()
+        if cell_csv:
+            write_csv(records, cell_csv)
+        if verbose:
+            print(f"[cell done] {bb}/{ds}: {len(records):,} records  (rss {_rss_gib():.2f} GiB)",
+                  flush=True)
+
+    def _verdicts_over(recs_all):
+        out = {}
+        for key in sorted({(r["backbone"], r["dataset"]) for r in recs_all}):
+            recs = [r for r in recs_all if (r["backbone"], r["dataset"]) == key]
+            out[key] = _verdict(recs, sorted({r["method"] for r in recs}), alpha=alpha,
+                                scores=scores, rho_test=rho_test)
+        return out
+
+    kept = [r for r in records if r.get("gate_status") != "excluded"]
+    out = {"records": records, "failed": failed, "alpha": alpha, "scores": list(scores),
+           "rho_test": rho_test, "verdicts": _verdicts_over(kept)}
+    # Derived FROM the records, so a resumed run is correct: finished cells come back from CSV and
+    # never pass through the loop, and an accumulated list would report zero excluded arms.
+    out["excluded"] = [{"backbone": r["backbone"], "dataset": r["dataset"], "method": r["method"],
+                        "seed": r["train_seed"], "worst_group_acc": r["worst_group_acc"],
+                        "floor": r.get("gate_floor")}
+                       for r in {(r["backbone"], r["dataset"], r["method"], r["train_seed"]): r
+                                 for r in records if r.get("gate_status") == "excluded"}.values()]
+    if out["excluded"]:
+        out["verdicts_with_excluded"] = _verdicts_over(records)
+    return out
 
 
 def _verdict(recs, methods, *, alpha, scores=SCORES, score="APS", rho_test=0.95) -> dict:
@@ -155,16 +247,58 @@ def _verdict(recs, methods, *, alpha, scores=SCORES, score="APS", rho_test=0.95)
 # ---------------------------------------------------------------------------------------
 _CSV_COLS = ["backbone", "dataset", "method", "train_seed", "condition", "score", "alpha",
              "rho_cal", "rho_test", "split_seed", "probe_auroc", "worst_group_acc",
+             "gate_status", "gate_floor",
              "worst_group_cov", "worst_group_set_size", "marg_cov", "mean_set_size"]
 
 
 def write_csv(records, path):
+    """Write records, warning about any field this schema would silently drop.
+
+    ``extrasaction="ignore"`` once discarded seven identifying columns without a word and made a
+    finished multi-hour run's CSV unusable. Extras are still ignored -- that is what keeps old and
+    new records mergeable -- but no longer quietly.
+    """
     import csv
+    if records:
+        dropped = sorted({k for r in records for k in r} - set(_CSV_COLS))
+        if dropped:
+            print(f"[write_csv] WARNING: not in the schema, dropped: {dropped}")
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=_CSV_COLS, extrasaction="ignore")
         w.writeheader()
         for r in records:
             w.writerow(r)
+
+
+_FLOAT_COLS = {"alpha", "rho_cal", "rho_test", "probe_auroc", "worst_group_acc", "gate_floor",
+               "worst_group_cov", "worst_group_set_size", "marg_cov", "mean_set_size"}
+_INT_COLS = {"train_seed", "split_seed"}
+
+
+def records_from_csv(path: str) -> list:
+    """Read records back with the same types they were written with.
+
+    Needed by ``run_predicted_group_streaming`` to resume: a resumed cell's records come from text,
+    and if ``train_seed`` came back as "0" instead of 0 the per-cell skip logic would still work
+    while every downstream group-by silently split into string and int keys.
+    """
+    import csv
+
+    out = []
+    with open(path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            r = {}
+            for k, val in row.items():
+                if val == "" or val is None:
+                    r[k] = None
+                elif k in _FLOAT_COLS:
+                    r[k] = float(val)
+                elif k in _INT_COLS:
+                    r[k] = int(float(val))
+                else:
+                    r[k] = val
+            out.append(r)
+    return out
 
 
 def write_md(out: dict, path: str, *, synthetic=False):

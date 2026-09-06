@@ -129,11 +129,30 @@ def report_afr_tuning(gd, *, gammas=DEFAULT_GAMMAS, seeds=(0, 1, 2), val_frac=0.
                      "n_val_min_group": sel["n_val_min_group"],
                      "val_se_min_group": sel["val_se_min_group"]})
 
+    # ORACLE UPPER BOUND -- the fairness argument, and the reason it does not rest on the noisy
+    # selection above. Each gamma is fit on ALL of d_learn and scored on eval, then the best is
+    # taken. That is deliberate test-set selection, so it may NEVER be reported as AFR's result;
+    # it is an upper bound on what any selection rule could achieve. If even this stays below the
+    # floor, AFR's exclusion cannot be an artefact of an untuned gamma, whatever the selector does.
+    #
+    # This matters here because the validation-based selection turned out to be unreliable: with
+    # ~40 minority examples (SE ~0.079) against candidate gaps of ~0.05 the argmax is noise, and it
+    # picked the collapsing gamma=2.0 in several cells. There is also a regime mismatch -- gamma is
+    # chosen on a half-size fit while the final head is refit on all of d_learn, and AFR's prior
+    # inversion depends on data size. The oracle bound sidesteps both problems.
+    oracle = {}
+    for gam in gammas:
+        oracle[gam] = wg_on_eval(fit_afr(Xrw, yrw, gamma=gam, seed=seeds[0]))
+    best_gamma = max(oracle, key=oracle.get)
+
     out = {"backbone": gd.backbone, "dataset": gd.dataset, "floor": float(floor), "rows": rows,
            "fixed_mean": float(np.mean([r["fixed_gamma_2.0"] for r in rows])),
-           "tuned_mean": float(np.mean([r["tuned_wg_eval"] for r in rows]))}
+           "tuned_mean": float(np.mean([r["tuned_wg_eval"] for r in rows])),
+           "oracle_by_gamma": oracle, "oracle_best_gamma": best_gamma,
+           "oracle_best_wg": float(oracle[best_gamma])}
     out["fixed_passes_floor"] = bool(out["fixed_mean"] >= floor)
     out["tuned_passes_floor"] = bool(out["tuned_mean"] >= floor)
+    out["oracle_passes_floor"] = bool(out["oracle_best_wg"] >= floor)
 
     if verbose:
         r0 = rows[0]
@@ -151,4 +170,9 @@ def report_afr_tuning(gd, *, gammas=DEFAULT_GAMMAS, seeds=(0, 1, 2), val_frac=0.
         print(f"  mean: fixed={out['fixed_mean']:.3f} -> tuned={out['tuned_mean']:.3f}   "
               f"gate floor={floor:.2f}   "
               f"passes: fixed={out['fixed_passes_floor']} tuned={out['tuned_passes_floor']}")
+        print(f"  ORACLE upper bound (best gamma chosen ON EVAL -- not reportable as a result, "
+              f"only as a bound):")
+        print(f"    " + ", ".join(f"{g}:{v:.3f}" for g, v in sorted(out["oracle_by_gamma"].items()))
+              + f"  -> best gamma={out['oracle_best_gamma']} wg={out['oracle_best_wg']:.3f}"
+              f"  passes floor={out['oracle_passes_floor']}")
     return out
