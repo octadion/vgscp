@@ -23,7 +23,7 @@ import numpy as np
 
 from . import metrics
 from .conformal_eval import CALIBRATIONS, RHO_SWEEP, evaluate
-from .grid import WG_ACC_SOFT_FLAG, worst_group_floor
+from .grid import WG_ACC_SOFT_FLAG, _release_memory, _rss_gib, worst_group_floor
 from .heads import head_probs
 from .methods import METHODS, fit_method
 from .verdicts import SCORES
@@ -36,7 +36,7 @@ NEAR_TARGET = 0.02   # "reaches target" / "valid" tolerance (spec)
 # ---------------------------------------------------------------------------------------
 def run_ablation(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep=RHO_SWEEP,
                  calibrations=CALIBRATIONS, seeds=(0, 1, 2), n_splits=10, alpha=0.1,
-                 method_hp=None) -> dict:
+                 method_hp=None, mem_trace=False) -> dict:
     """Fit each method's head ONCE per (key, seed) on cached features (no backbone retraining),
     then evaluate every calibration × score × rho × split on those posteriors."""
     method_hp = method_hp or {}
@@ -45,8 +45,20 @@ def run_ablation(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep
         Xev, yev, gev = gd.eval_domain
         for method in methods:
             for seed in seeds:
+                # Printed BEFORE the fit and flushed. This ablation evaluates three calibration
+                # policies rather than one, so the expensive cells run over an hour; without a
+                # line per arm the cell looks hung, and an OOM kill would leave no evidence of
+                # which arm was in flight. Telemetry only -- it changes nothing computed.
+                if mem_trace:
+                    print(f"    [mem] {gd.backbone}/{gd.dataset} {method}/s{seed} "
+                          f"pre-fit rss={_rss_gib():.2f} GiB", flush=True)
                 head = fit_method(method, gd.train, gd.reweight, seed=seed, **method_hp.get(method, {}))
                 probs = head_probs(head, Xev, gd.n_classes)
+                del head
+                _release_memory()
+                if mem_trace:
+                    print(f"    [mem] {gd.backbone}/{gd.dataset} {method}/s{seed} "
+                          f"post-fit rss={_rss_gib():.2f} GiB", flush=True)
                 _, wg_acc = metrics.worst_group_accuracy(np.argmax(probs, axis=1), yev, gev)
                 # Evaluate the arm and KEEP its records, tagged, exactly as run_grid does. This
                 # previously `continue`d, so a gated arm left no trace and its influence could not
@@ -75,6 +87,8 @@ def run_ablation(data_by_key: dict, *, methods=METHODS, scores=SCORES, rho_sweep
                                             "gate_status": gate_status,
                                             "gate_floor": float(floor)})
                                 records.append(rec)
+                del probs
+                _release_memory()
     kept = [r for r in records if r.get("gate_status") != "excluded"]
     verdicts = _build_verdicts(kept, scores=scores, rho_sweep=rho_sweep, alpha=alpha)
     out = {"records": records, "excluded": excluded, "verdicts": verdicts, "alpha": alpha,
@@ -260,8 +274,6 @@ def run_ablation_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES,
     """
     import gc
 
-    from .grid import _release_memory, _rss_gib
-
     done, records = set(), []
     if cell_csv and os.path.exists(cell_csv):
         records = records_from_csv(cell_csv)
@@ -281,9 +293,11 @@ def run_ablation_streaming(keys, build_fn, *, methods=METHODS, scores=SCORES,
             failed.append(((bb, ds), repr(e)))
             print(f"[FAIL] {bb}/{ds}: {e}", flush=True)
             continue
+        if verbose:
+            print(f"    [mem] {bb}/{ds} GridData built, rss={_rss_gib():.2f} GiB", flush=True)
         one = run_ablation({(bb, ds): gd}, methods=methods, scores=scores, rho_sweep=rho_sweep,
                            calibrations=calibrations, seeds=seeds, n_splits=n_splits,
-                           alpha=alpha, method_hp=method_hp)
+                           alpha=alpha, method_hp=method_hp, mem_trace=verbose)
         records += one["records"]
         del gd, one
         _release_memory()
