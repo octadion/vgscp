@@ -99,6 +99,12 @@ def run_predicted_group(data_by_key: dict, *, methods=METHODS, scores=SCORES, se
             ap = probe.predict_proba(Xev)[:, pcol]
             auroc = float(roc_auc_score(a_ev, ap)) if len(np.unique(a_ev)) > 1 else float("nan")
             probes[seed] = ((ap >= 0.5).astype(int), auroc)
+            # Only the hard assignment and the AUROC are kept; the probe and the float64 copy
+            # sklearn made of the train matrix are dead here. Without this the three probe fits
+            # accumulate -- measured at 9.90 GiB on the CelebA/ResNet cell, which is fine on a
+            # 50 GB runtime and too close to the edge on a standard 12.7 GB one.
+            del probe, ap
+            _release_memory()
         for method in methods:
             for seed in seeds:
                 if mem_trace:

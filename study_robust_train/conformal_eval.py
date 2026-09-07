@@ -37,9 +37,18 @@ def _per_group(values: np.ndarray, group: np.ndarray) -> dict:
 def evaluate(probs: np.ndarray, y: np.ndarray, group: np.ndarray, *,
              score: str = "APS", alpha: float = 0.1, rho_test: float = 0.95,
              rho_cal: float = RHO_CAL, split_seed: int = 0, frac_cal: float = 0.5,
-             n_eval: int | None = None, calibration: str = "marginal_split") -> dict:
+             n_eval: int | None = None, calibration: str = "marginal_split",
+             return_examples: bool = False) -> dict:
     """One conformal evaluation record. ``probs`` are (N, C) posteriors over the eval-domain pool;
-    ``group`` is the Waterbirds 4-group id (2*y_bin + spurious). Returns a flat dict."""
+    ``group`` is the Waterbirds 4-group id (2*y_bin + spurious). Returns a flat dict.
+
+    ``return_examples`` additionally attaches the per-example arrays this function already computes
+    -- the test indices into the eval pool, their labels and groups, the membership matrix and the
+    threshold(s) actually used -- under an ``examples`` key. It is off by default and adds no work:
+    the point is that a figure showing individual prediction sets can be built from the *same* code
+    path that produced the tables, rather than from a second implementation that might drift from
+    it. The grid never sets it, so the CSV schema is untouched.
+    """
     probs = np.asarray(probs, dtype=np.float64)
     y = np.asarray(y)
     group = np.asarray(group)
@@ -69,14 +78,17 @@ def evaluate(probs: np.ndarray, y: np.ndarray, group: np.ndarray, *,
     if calibration == "marginal_split":          # single global threshold, no group conditioning
         qhat = conformal_quantile(cal_true, alpha)
         membership = test_scores_all <= qhat
+        thresholds = {"pooled": float(qhat)}
     elif calibration == "mondrian":              # group-conditional thresholds (per-group quantile)
         gq = mondrian_quantiles(cal_true, cal_group, alpha)
         membership = mondrian_build_sets(test_scores_all, g_test, gq)
+        thresholds = {int(g): float(q) for g, q in dict(gq).items()}
     elif calibration == "shift_robust":          # TV-robust: inflate level by observed cal->test shift
         test_true_tmp = true_label_scores(test_scores_all, y_test)
         eps = score_tv_distance(cal_true, test_true_tmp)
         qhat, _ = robust_quantile(cal_true, alpha, eps)
         membership = test_scores_all <= qhat
+        thresholds = {"pooled_robust": float(qhat), "eps": float(eps)}
     else:
         raise ValueError(f"unknown calibration {calibration!r}; choose from {CALIBRATIONS}")
 
@@ -106,7 +118,19 @@ def evaluate(probs: np.ndarray, y: np.ndarray, group: np.ndarray, *,
     test_true = true_label_scores(test_scores_all, y_test)
     div = cross_group_divergence(test_true, g_test, worst_group=worst_g, score_name=score)
 
-    return {
+    examples = None
+    if return_examples:
+        examples = {
+            "test_idx": test_idx.astype(int),          # indices into the eval-domain pool
+            "y_test": y_test.astype(int),
+            "group_test": g_test.astype(int),
+            "membership": membership.astype(bool),     # (n_test, n_classes)
+            "scores_all": test_scores_all.astype(np.float64),
+            "thresholds": thresholds,
+            "worst_group": int(worst_g),
+        }
+
+    out = {
         "score": score, "calibration": calibration, "alpha": alpha, "rho_cal": rho_cal,
         "rho_test": rho_test, "split_seed": split_seed, "n_eval": int(n_eval),
         "rho_cal_realized": cal_rs.rho_realized, "rho_test_realized": test_rs.rho_realized,
@@ -118,3 +142,6 @@ def evaluate(probs: np.ndarray, y: np.ndarray, group: np.ndarray, *,
         "div_wasserstein1": div.wasserstein1, "div_ks_stat": div.ks_stat,
         "div_ks_pvalue": div.ks_pvalue,
     }
+    if examples is not None:
+        out["examples"] = examples
+    return out

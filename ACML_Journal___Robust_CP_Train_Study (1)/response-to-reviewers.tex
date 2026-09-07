@@ -1,0 +1,592 @@
+% Response to reviewers -- ACML 2026 collection, Machine Learning (Springer)
+% Submission 62d20e3d-c3eb-4568-b964-7b09cf6f583b
+%
+% Standalone: compiles with pdflatex on a plain TeX installation and does not need the
+% Springer class. Every reviewer point gets the same four parts -- the reviewer's words, what we
+% did, where in the manuscript it lives, and the revised text quoted verbatim -- so a reviewer can
+% check any single point without reading the rest.
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=linkblue,urlcolor=linkblue,citecolor=linkblue]{hyperref}
+
+\definecolor{linkblue}{HTML}{0F4D92}
+\definecolor{revgrey}{HTML}{4D4D4D}
+\definecolor{quoterule}{HTML}{0F4D92}
+\definecolor{rulegrey}{HTML}{C4C4C4}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+
+% The reviewer's own words.
+\newenvironment{reviewer}
+  {\begin{list}{}{\leftmargin=1.1em\rightmargin=0.6em}\item[]\itshape\color{revgrey}\small}
+  {\end{list}}
+
+% Text quoted verbatim from the revised manuscript, marked with a rule so it cannot be mistaken
+% for our commentary in this letter.
+\newenvironment{revised}
+  {\begin{list}{}{\leftmargin=1.1em\rightmargin=0.6em}\item[]%
+   \color{black}\small\hspace{-1.1em}\textcolor{quoterule}{\rule[-0.4ex]{2pt}{1.05em}}\hspace{0.5em}\ignorespaces}
+  {\end{list}}
+
+\newcommand{\where}[1]{{\textbf{Where addressed:} #1\par}}
+\newcommand{\rpoint}[2]{\subsection*{#1 --- #2}}
+
+\title{\vspace{-1.6cm}\Large\bfseries Response to Reviewers}
+\date{}
+\author{}
+
+\begin{document}
+\maketitle
+\vspace{-2.2cm}
+
+\noindent\textcolor{rulegrey}{\rule{\textwidth}{1pt}}
+
+\textbf{Manuscript.} Worst-Group Conformal Reliability under Spurious Correlation Is More a
+Calibration Problem than a Representation Problem: A Confound-Controlled Multi-Backbone Study
+
+\textbf{Submission ID.} 62d20e3d-c3eb-4568-b964-7b09cf6f583b \quad ACML 2026 collection,
+\emph{Machine Learning}
+
+\textbf{Authors.} One Octadion, Novanto Yudistira, Yuta Nakashima
+
+\noindent\textcolor{rulegrey}{\rule{\textwidth}{1pt}}
+
+We thank the three reviewers and the editor for reviews that were specific enough to act on. Two of
+the comments identified genuine errors in our analysis, and acting on them changed several reported
+numbers; we say so explicitly below rather than presenting the revision as a clarification. All
+reviewer requests have been implemented, including the two that required new experiments.
+
+The revision rests on new runs: a four-backbone grid ($36{,}000$ records), a four-backbone
+calibration ablation across three calibration policies ($64{,}800$), a four-backbone
+predicted-group study ($10{,}800$), and an end-to-end fine-tuning study in which the representation
+itself is retrained ($4{,}320$). Every table in the paper has been recomputed from these.
+
+\section*{Summary of the principal changes}
+
+\begin{longtable}{@{}p{0.5em}p{11.4cm}p{2.9cm}@{}}
+\toprule
+\textbf{\#} & \textbf{Change} & \textbf{Prompted by} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{\#} & \textbf{Change} & \textbf{Prompted by} \\
+\midrule
+\endhead
+1 & \textbf{New experiment:} the backbone is fine-tuned end-to-end under three objectives, so the
+representation itself moves rather than only the head. New Section~5.2 and Table~4. & R1.2, R2.1 \\
+\addlinespace
+2 & \textbf{Backbones extended from two to four}, spanning two architecture families and three
+pretraining regimes. Every results table now reports eight backbone--dataset cells. & R1.3 \\
+\addlinespace
+3 & \textbf{Title narrowed} from an absolute dichotomy to a comparative claim, and the same
+softening applied in fifteen further places. & R1.2, R2.1, R3 \\
+\addlinespace
+4 & \textbf{Proposition~1(ii) rewritten} around an exact identity and a bound that holds, with an
+explicit remark on what the divergences do and do not give. & R2.2 \\
+\addlinespace
+5 & \textbf{Uncertainty quantification replaced} with a two-stage cluster bootstrap that respects
+calibration splits nested within trained models. & R2.3 \\
+\addlinespace
+6 & \textbf{Four claims withdrawn} and two matched-divergence values retracted, because the
+corrected analysis does not support them. & R1.3, R2.3, R2.6, R3 \\
+\addlinespace
+7 & \textbf{Sub-target coverage explained with a direct measurement:} mean-over-groups coverage is
+$0.9024$ against a nominal $0.900$. & R1.1, R3 \\
+\addlinespace
+8 & \textbf{Sensitivity analysis over the excluded runs}, and the exclusion rules described as
+pre-specified rather than preregistered. & R2.4 \\
+\addlinespace
+9 & \textbf{Predicted-group mechanics, supervision, error propagation and ethics} written out in
+full; the $\rho$-sweep claim scoped to group-prior shift. & R2.5 \\
+\addlinespace
+10 & \textbf{Reproducibility appendix expanded}; literature comparison table added; requested
+citation added. & R1.3, R1.5, R2.6 \\
+\bottomrule
+\end{longtable}
+
+The revised manuscript runs to about 23 pages against the 20 that applied at submission. We would
+rather report the requested experiments and analyses in full than compress them, and we are glad to
+shorten if the editorial office requires it.
+
+\section*{Reviewer 1}
+
+\rpoint{R1.1}{the target is $0.90$ but the empirical values are $0.84$--$0.89$}
+
+\begin{reviewer}
+``In Section 3 \ldots the authors state that $(1-\alpha=0.90)$ is the target throughout. However,
+their empirical values are around $0.84$--$0.89$, which are below the stated $0.90$ target. The
+authors should clearly explain the reason for this difference.''
+\end{reviewer}
+
+The reviewer is right that the paper reported a sub-target number without an adequate explanation.
+The cause is that we report a \textbf{minimum over four noisy per-group coverages}, which is a
+downward-biased statistic even when every group is individually valid. We now demonstrate this with
+a direct measurement rather than an argument.
+
+\where{Section~5.1 (end), Section~5.7, and Appendix~B (including a new figure).}
+
+\begin{revised}
+Mondrian's level settles at $0.854$--$0.886$, below the nominal $0.90$. That is a property of the
+statistic rather than a validity failure, and we quantify it directly: the unweighted mean over
+groups, which is what group-conditional calibration actually targets, is $\mathbf{0.9024}$ across
+the same eight cells (range $0.8995$--$0.9056$), while the \emph{minimum} over four noisy per-group
+coverages sits $0.018$--$0.045$ below it.
+\end{revised}
+
+Appendix~B additionally simulates an \emph{exactly valid} Mondrian procedure with no model and no
+data, and a new figure puts our runs against that law directly:
+
+\begin{revised}
+The blue line is where an \emph{exactly valid} Mondrian procedure puts that minimum, simulated at
+our own per-group calibration and test counts with no model and no data: $\mathbf{0.8695}$ against
+an observed $\mathbf{0.8660}$ on Waterbirds and $\mathbf{0.8847}$ against $\mathbf{0.8800}$ on
+CelebA, with $98\%$ and $95\%$ of runs inside its central $95\%$ range.
+\end{revised}
+
+The two effects are worth separating. The closed-form $1.03\,\sigma$ figure covers only the
+min-over-$k$ selection effect and predicts $0.013$--$0.030$ against an observed $0.018$--$0.045$,
+so on its own it accounts for the level's direction and order of magnitude but not every point of
+it. Simulating the full Mondrian law additionally captures the second effect --- each threshold is
+estimated from that group's own small calibration sample --- and the residual is then
+$0.004$--$0.005$ of coverage. We report that residual rather than claim an exact match.
+
+\rpoint{R1.2}{the backbones are frozen, so why the title claim?}
+
+\begin{reviewer}
+``The authors freeze the neural network backbones \ldots Therefore, why do the authors claim in the
+title \ldots? The authors should clarify this claim or provide additional experiments where the
+representation itself is trained or fine-tuned.''
+\end{reviewer}
+
+We have done both. This was the most substantial change to the paper.
+
+\where{New Section~5.2 and Table~4 (experiment); the title, abstract, Section~5.1 heading,
+discussion, conclusion and related work (narrowing); Section~3 (terminology).}
+
+We fine-tune the backbone \textbf{end-to-end} under three objectives --- plain ERM, GroupDRO and
+group reweighting --- with five fine-tuning seeds each, holding the head fixed at plain ERM so the
+representation is the only thing that moves. The section opens with a \textbf{manipulation check},
+because a representation-level experiment answers nothing unless the intervention actually moved
+the representation:
+
+\begin{revised}
+GroupDRO fine-tuning raises worst-group accuracy from $0.516$ to $0.738$ on Waterbirds ($+0.222$)
+and from $0.396$ to $0.470$ on CelebA ($+0.074$): the lever was pulled, and by the largest margin
+any intervention in this paper produces. Reweighting did not help ($0.466$ and $0.364$, both
+slightly below ERM). We report it regardless --- a representation that fails to improve is still a
+representation that changed, and dropping it would be selecting on the outcome.
+\end{revised}
+
+The dissociation survives. Under marginal calibration the three representations span $0.249$ of
+worst-group coverage on Waterbirds; under Mondrian they sit within $0.004$ of one another.
+
+\textbf{Title narrowed.} ``\ldots Is a Calibration Problem, \emph{Not} a Representation Problem''
+has become ``\ldots Is \emph{More} a Calibration Problem \emph{than} a Representation Problem''. We
+traced the same absolute claim through the rest of the paper and softened it in fifteen further
+places, since softening only the title would not have answered the objection.
+
+We also corrected a terminological conflation the reviewer's question exposed: the submitted paper
+used ``representation'' for the frozen backbone, which it never varied. Throughout the revision,
+\textbf{backbone} means the frozen feature extractor, \textbf{representation} means what the
+fine-tuning study changes, and \textbf{head} means the last-layer classifier.
+
+\rpoint{R1.3}{only two backbones; compare more clearly with related work}
+
+\begin{reviewer}
+``Only two backbones are used, which limits the generalizability of the results. In addition, the
+experimental results should be compared more clearly with those of other related studies.''
+\end{reviewer}
+
+\where{Section~4 and every results table (backbones); new Table~2 and three paragraphs before
+Section~5 (literature comparison).}
+
+\textbf{Backbones: two $\rightarrow$ four,} chosen to span two architecture families and three
+pretraining regimes --- an ERM-trained ResNet-50 ($d=2048$), CLIP ViT-B/32 ($512$, image--text
+contrastive), DINOv2 ViT-B/14 ($768$, self-supervised, never label-trained), and a supervised
+ImageNet ViT-B/16 ($768$). Every results table now reports all eight backbone--dataset cells. The
+substantive finding is that the two added backbones behave like the two originally reported: the
+Mondrian cross-training spread never exceeds $0.024$ in any cell.
+
+\textbf{Literature comparison.} The comparison is unflattering and we present it as such --- our
+ResNet-50 arms are $10$--$24$ points below published worst-group accuracies on Waterbirds --- and
+we state the three protocol differences that explain it: our arms refit only the last layer on
+cached features (where the published GroupDRO and AFR train the network), our ResNet-50 uses a
+deliberately light recipe and a $30{,}000$-image CelebA training subsample, and worst-group
+accuracy is read on our pooled evaluation domain rather than the benchmark test split. DFR, the one
+arm whose protocol matches its published counterpart, is correspondingly the closest ($0.851$
+against $0.883$ on CelebA).
+
+We also explain why this does not bear on the paper's claims: every result is a
+\textbf{within-cell} contrast computed on the same posteriors, so a weaker backbone lowers all arms
+in a cell together and leaves the calibration contrast intact. The four backbones span a
+$0.20$--$0.95$ range of worst-group accuracy and the dissociation is unchanged across all of them.
+
+\rpoint{R1.4}{more independent training seeds}
+
+\begin{reviewer}
+``The authors should increase the number of independent training seeds to ensure the reproducibility
+and stability of the reported results.''
+\end{reviewer}
+
+\where{Section~4, new paragraph; Appendix~D (seeds and splits).}
+
+The main grid and the end-to-end fine-tuning study now run \textbf{five} training seeds; the
+calibration-policy ablation runs three, and the manuscript states the design as $\ge 3$ training
+seeds $\times \ge 10$ calibration splits rather than quoting a single figure that would not hold
+everywhere. In raising the count we found something we must disclose, because presenting it as
+stability would be misleading: \textbf{two of the five arms are deterministic.} ERM and AFR fit with
+L-BFGS, whose solver ignores the random seed, so their across-seed standard deviation is exactly
+$0.000$ and their base accuracy is identical to five decimals in every cell.
+
+\begin{revised}
+Running more seeds therefore adds replicates for DFR, balanced subsampling and GroupDRO-LL
+(across-seed SD $0.003$--$0.027$ in worst-group accuracy) but not for ERM or AFR. We report this
+rather than present zero variance as stability.
+\end{revised}
+
+This is also why every interval in the revision is a cluster bootstrap resampling seeds and then
+splits within them: the calibration splits inside a seed share one trained model.
+
+\rpoint{R1.5}{add the requested reference}
+
+\begin{reviewer}
+``The authors must add the following recent study to the references: `New unfreezing strategy of
+transfer learning in satellite imagery\ldots', Scientific African, 2024.''
+\end{reviewer}
+
+\where{Section~5.2, in the fine-tuning protocol.}
+
+Added, and placed where it is substantively relevant rather than appended to a list. Because the
+revision now fine-tunes backbones end-to-end, how much of a pretrained network to unfreeze is a
+choice we actually make:
+
+\begin{revised}
+How much of a pretrained network to unfreeze is itself consequential, and staged or partial
+unfreezing schedules change what a fine-tuned representation encodes [citation]; we unfreeze the
+whole network, so the representation lever is pulled as far as each objective allows and this is
+the strongest test of whether calibration still dominates that our setting admits.
+\end{revised}
+
+\section*{Reviewer 2}
+
+\rpoint{R2.1}{scope of the main claim}
+
+\begin{reviewer}
+``All training interventions modify only the last-layer classifier while the backbone remains
+frozen. Please add a representation-changing robustness experiment if feasible; otherwise, narrow
+the title, abstract, and conclusions\ldots''
+\end{reviewer}
+
+\where{New Section~5.2 (experiment); title, abstract (fourth sentence), and conclusions
+(narrowing).}
+
+We have done both, as described under R1.2: the new Section~5.2 retrains the representation
+end-to-end, and the title, abstract and conclusions have been narrowed regardless. The claim is now
+comparative throughout, and the abstract states the scope in its fourth sentence --- ``We test that
+intuition on \emph{both} levers'' --- so a reader encounters it before the results.
+
+\rpoint{R2.2}{Proposition~1(ii)}
+
+\begin{reviewer}
+``Wasserstein-1 or KS divergence alone generally does not imply a monotonic reduction in coverage at
+the pooled threshold. Please state sufficient assumptions for such a relationship or present the
+divergence--coverage link as an empirical hypothesis.''
+\end{reviewer}
+
+The reviewer is correct and the earlier claim did not follow. Proposition~1(ii) is now built on an
+\textbf{exact identity} rather than an assertion about divergences:
+\[
+(1-\alpha) - F_{\mathrm{wg}}(\hat q)
+= (1-\pi)\bigl[F_{\neg\mathrm{wg}}(\hat q) - F_{\mathrm{wg}}(\hat q)\bigr],
+\qquad\text{hence}\qquad
+(1-\alpha) - F_{\mathrm{wg}}(\hat q) \le (1-\pi)\,D_{\mathrm{KS}} .
+\]
+
+\where{Section~3, Proposition~1(ii) and the remark that follows it.}
+
+\begin{revised}
+$W_1$ admits no such bound --- it integrates the gap over the line while the shortfall depends on it
+at one point, so the gap can concentrate on a vanishing interval with $W_1 \to 0$ and the shortfall
+fixed --- so we use $W_1$ only as a descriptive summary of heterogeneity. Neither divergence
+\emph{orders} coverage without a direction assumption: $P_{\mathrm{wg}}$ stochastically \emph{below}
+the pool has the same $W_1$ and $D_{\mathrm{KS}}$ as its mirror image above it but yields a coverage
+surplus. Monotonicity needs $P_{\mathrm{wg}} \succeq_{\mathrm{st}} P_{\neg\mathrm{wg}}$, which holds
+here by construction, the worst group being defined as the lowest-coverage one --- an assumption
+about which group is worst, not a consequence of the divergence.
+\end{revised}
+
+All four statements were verified numerically before being written.
+
+\rpoint{R2.3}{the accuracy-matched analysis}
+
+\begin{reviewer}
+``The current interpolation uses relatively few independent training seeds, and several robust
+models show no overlap in accuracy with ERM. More controlled overlap and independent runs would
+strengthen the analysis; otherwise, limit the conclusion to matched settings and use a hierarchical
+uncertainty analysis that respects repeated calibration splits within the same trained model.''
+\end{reviewer}
+
+This comment led to the largest correction in the revision, and the reviewer's suspicion was better
+founded than we realised.
+
+\where{Section~5.5 (rewritten), Table~3 (recomputed), new Figure~4, and Appendix~D.}
+
+\textbf{What we found.} The submitted analysis pooled each arm's (accuracy, divergence) points
+across seeds \emph{and} calibration splits. Measured separately, ERM's per-seed base accuracy is
+identical to five decimals in every cell --- its solver is deterministic --- while its across-split
+range is $0.02$--$0.03$. So the entire accuracy axis ERM contributed was \emph{which evaluation rows
+were drawn}, not \emph{which model was trained}. Matching on it compares ERM on unlucky draws
+against a robust arm on lucky ones. The accompanying bootstrap over pooled points also treated
+nested rows as independent draws, which is exactly the hierarchical-uncertainty problem the reviewer
+raises.
+
+\textbf{What we did.} We recomputed at model level (one accuracy per training seed) with a two-stage
+cluster bootstrap that resamples seeds and then splits within them. ERM's accuracy support is then a
+single \textbf{point}, and overlapping support exists in \textbf{one of the eight cells}:
+GroupDRO-LL on ResNet-50/Waterbirds, whose per-seed accuracies bracket ERM's $0.9399$. There the
+reduction is real and \textbf{replicates} the earlier estimate ---
+$\Delta_{\mathrm{APS}} = +0.084\,[+0.076, +0.095]$,
+$\Delta_{\mathrm{RAPS}} = +0.084\,[+0.074, +0.094]$,
+$\Delta_{\mathrm{THR}} = +0.150\,[+0.146, +0.158]$.
+
+\textbf{What we withdraw.} The two other matched values in the submitted Table~3 --- GroupDRO-LL on
+CLIP/Waterbirds ($+0.100$) and balanced subsampling on ResNet-50/Waterbirds ($+0.059$) --- rested on
+the split-level spread. At model level neither arm's accuracy support reaches ERM's, and both are
+now reported as unmatched.
+
+Following the reviewer's instruction, we \textbf{limit H3 to that one matched setting} and draw no
+accuracy-matched conclusion elsewhere. We also note that the reason the comparison is unavailable is
+itself the more robust reading: on CelebA the robust arms raise base accuracy to $0.81$--$0.91$
+against ERM's $0.68$--$0.70$, so no common operating point exists at all.
+
+\rpoint{R2.4}{impact of the excluded runs, and preregistration status}
+
+\begin{reviewer}
+``The failed AFR runs on CelebA and the excluded GroupDRO seed are informative for comparing
+training interventions. Please include them in a sensitivity analysis and clarify whether the
+exclusion rules were preregistered or only pre-specified.''
+\end{reviewer}
+
+\where{Section~4 (heading and wording), Appendix~C (sensitivity analysis), Appendix~C (AFR
+diagnosis).}
+
+\textbf{Status of the rules.} They were \textbf{pre-specified, not preregistered.} The per-method
+accuracy floors were fixed in the codebase on 11 June 2026, three months before any run reported
+here, so they are pre-specified with respect to every number in the paper --- but they were never
+lodged in a public registry, and we do not claim otherwise. We have also corrected the paper's own
+heading, which read ``Pre-registered hypotheses'' and now reads ``Pre-specified hypotheses'' with
+the distinction stated.
+
+\textbf{Sensitivity analysis.} Every excluded arm was evaluated and its records retained, so this
+needed no re-run. Including them, the dissociation is unaffected: the Mondrian cross-training spread
+rises only to $0.028$ against $0.024$. \textbf{One thing does change, and we report it against
+ourselves:} the pre-specified C1 criterion --- Mondrian within $0.02$ of target \emph{and} marginal
+significantly below target for \emph{every} method --- is met in exactly one of eight cells, and
+that single cell \textbf{flips to failing} when the gated AFR arm is included. We therefore rest the
+claim on the spread magnitudes rather than on the pass/fail flag.
+
+\textbf{AFR's collapse is not an untuned hyperparameter.} Since excluding a method on a
+hyperparameter we chose would be unfair, we investigated. The mechanism is a class-prior inversion:
+at the default $\gamma=2$ the reweighting drives the head to predict the positive class for
+$\approx 86\%$ of examples where the true rate is $\approx 15\%$, so a \emph{majority} group becomes
+the worst group. We then computed an \textbf{oracle upper bound} --- the best $\gamma$ chosen with
+knowledge of the evaluation set, which no selection rule could beat --- of $0.327$, $0.427$, $0.445$
+and $0.477$ across the four CelebA backbones, all far below the $0.75$ floor. AFR's exclusion is a
+property of the method in this regime, not of our choice of $\gamma$.
+
+\rpoint{R2.5}{shift and predicted-group deployment claims}
+
+\begin{reviewer}
+``The rho sweep mainly appears to change group mixture/correlation strength rather than the
+within-group data distribution, so the robustness claim should be scoped accordingly \ldots For
+predicted-group Mondrian, describe exactly how predicted attributes determine thresholds, what
+supervision is required, how probe errors affect coverage, and discuss the privacy or ethical
+implications of inferring the CelebA \emph{Male} attribute.''
+\end{reviewer}
+
+All five requests implemented.
+
+\where{Section~5.7 ($\rho$-sweep scoping); Section~5.8 (mechanics, supervision, probe error);
+Section~6 and the ethics statement (privacy).}
+
+\textbf{$\rho$-sweep scoping.} The reviewer's reading is correct.
+
+\begin{revised}
+The $\rho$ sweep changes the \emph{group mixture} of the evaluation distribution \ldots while the
+class-conditional feature distribution within each of the four groups is untouched. It is therefore
+a group-prior shift, a special case of label-and-attribute shift, and \emph{not} a general covariate
+shift \ldots Our stability claim is scoped accordingly.
+\end{revised}
+
+\textbf{Mechanics.} The label is never predicted; only the attribute is. The stratum is
+$\hat g = 2y + \hat a$; calibration points are binned by $\hat g$, each bin's
+$\lceil(1-\alpha)(n+1)\rceil$-th smallest score becomes its threshold, and a test point is admitted
+if its score is at most its own bin's threshold. Coverage is always tallied against the
+\textbf{true} group, so a mis-assignment is penalised rather than hidden.
+
+\textbf{Supervision required.} The attribute on the \emph{training} split only --- not on the
+calibration split, never at test. The reduction is from ``attribute labels on calibration
+\emph{and} test data'' to ``attribute labels on training data only'': a meaningful weakening of the
+requirement, not its removal.
+
+\textbf{Probe error.} It propagates asymmetrically: the minority stratum carries the \emph{largest}
+threshold, so a minority point misplaced into a majority stratum is judged against a tighter
+threshold and under-covered, while the reverse error only wastes efficiency. We checked whether
+probe accuracy predicts the penalty and it does \textbf{not} --- the cell with the lowest AUROC
+($0.945$) has no failures, while a cell at AUROC $0.999$ has one. What travels with the penalty is
+the arm's own group-dependence: the two largest failures are ERM. We say so rather than offer AUROC
+as a sufficient diagnostic.
+
+\textbf{Privacy and ethics.} Written as a constraint on use rather than a disclaimer. Two points are
+stated plainly: CelebA's \emph{Male} field is a third-party binary annotation and \textbf{not
+self-identified gender}, so a study that treats it as gender has erred before any ethical question
+arises; and inferring such an attribute at test time assigns a sensitive label to someone who has
+not provided it, wrongly for $2$--$5\%$ of people even at the AUROC we measure. The recommendation
+is scoped to settings where the attribute is already lawfully held, or where the inference stays
+inside an audit an operator runs on their own system, and it is explicitly ruled out where the
+inferred label would be stored, disclosed, or used to route individual outcomes. We note that
+special-category data regimes may prohibit the inference outright regardless of accuracy.
+
+\rpoint{R2.6}{moderate the claims; improve reproducibility}
+
+\begin{reviewer}
+``Claims such as `training buys efficiency' and `accuracy is a good proxy' should be presented as
+empirical tendencies \ldots Please also provide the exact calibration/test construction, per-group
+counts, training hyperparameters, the shift-robust procedure, random seeds, and a link to archival
+code with reproducible commands.''
+\end{reviewer}
+
+\where{Sections~5.4, 5.6 and 5.7 (moderation); Appendix~D (reproducibility).}
+
+\textbf{Moderation.} Four statements are now withdrawn rather than softened, because measurement
+contradicts them.
+
+\begin{enumerate}[leftmargin=1.4em,itemsep=0.35em]
+\item The per-cell accuracy--set-size correlation, reported bare in the submitted version, is
+\textbf{uninformative in five of eight cells} once a cluster-bootstrap CI is attached --- each rests
+on only three to five methods. We now report a \emph{direction}, not an estimate.
+\item ``The absolute efficiency range is narrow'' is \textbf{withdrawn}. The spread runs $0.036$ to
+$0.364$, and a two-one-sided-test equivalence check rejects equivalence at a $0.10$ margin in six of
+eight cells.
+\item ``Training buys efficiency, not coverage'' is now stated as \textbf{conditional on Mondrian}:
+under marginal calibration training still moves coverage, so it is not a general claim.
+\item ``Mondrian is $2$--$4\times$ more split-stable than marginal calibration'' is
+\textbf{withdrawn}. It held on the two backbones of the submitted version but not on four
+(Section~5.7).
+\end{enumerate}
+
+\begin{revised}
+An earlier version also claimed Mondrian was $2$--$4\times$ more split-stable than marginal
+calibration. On the four-backbone data the two are comparable --- marginal's SD is
+$0.009$--$0.042$ --- and in two of the eight cells Mondrian is the less stable of the two, so we
+withdraw that comparison. Mondrian's advantage here is in the \emph{level} it attains, not in its
+variance across splits.
+\end{revised}
+
+That last one was found only because the reviewers asked for more backbones (R1.3), which is a fair
+illustration of why the request mattered. ``Accuracy is a good proxy for conformal burden'' is
+likewise a tendency: point-estimate inversions occur in five of eight cells but clear their
+cluster-bootstrap interval in only one, by $0.014$ of coverage.
+
+\textbf{Reproducibility.} Appendix~D now gives the exact calibration/test construction --- disjoint
+reservoirs from a seeded permutation, resampled within their own group indices, truncated to a
+common size, realised $\rho$ logged per draw, separate uniform streams for the randomised scores ---
+the per-group counts for both datasets, every head hyperparameter including the fine-tuning
+optimisers, the shift-robust threshold in closed form, the seed sets, and the measured run times. We
+also report that the worst group's Mondrian calibration count never falls below $50$ (minimum $66$
+on Waterbirds, $373$ on CelebA), so the pooled-quantile fallback is never triggered by these runs.
+
+\textbf{Archival code.} A DOI will be minted from a tagged release and inserted before publication;
+the manuscript currently carries a visible placeholder rather than a provisional link.
+
+\section*{Reviewer 3}
+
+\rpoint{R3.1}{the calibration-versus-representation claim is too strong; provide CIs or equivalence
+tests}
+
+\begin{reviewer}
+``The claim that coverage is a calibration property rather than a representation property seems too
+strong \ldots Mondrian also does not always reach the target coverage. The authors should narrow the
+claim and provide stronger statistical tests, such as confidence intervals or equivalence tests.''
+\end{reviewer}
+
+We agree on all three counts.
+
+\where{Title, Section~5.1 heading and fifteen further places (narrowing); all main tables (CIs);
+Section~5.6 (equivalence test); Section~5.1 and Appendix~B (sub-target level).}
+
+\textbf{Narrowed.} The title is now comparative, and the same softening was applied throughout
+rather than to the title alone. Section~5.1's heading, for instance, has changed from ``Coverage Is
+a Calibration Property, Not a Representation One'' to ``Calibration Governs Worst-Group Coverage Far
+More than Training Does''.
+
+\textbf{Confidence intervals.} Every point estimate in the main tables now carries a two-stage
+cluster bootstrap interval that resamples training seeds and then calibration splits within them.
+
+\textbf{Equivalence test.} Added: a two-one-sided-test check of whether the across-method spread in
+worst-group set size lies inside a stated margin. It \textbf{rejects} equivalence at $0.10$ in six
+of eight cells, which is why we withdrew the description of the efficiency range as narrow.
+
+\textbf{Mondrian not reaching target.} Addressed as under R1.1: the mean over groups is $0.9024$
+against a nominal $0.900$, so the sub-target \emph{minimum} is a min-over-groups selection effect.
+We continue to report the minimum, because it is the operationally relevant number, but now always
+alongside the mean so the two are not confused.
+
+\rpoint{R3.2}{``training buys efficiency'' is specific to Mondrian; the correlation is weak in one
+setting}
+
+\begin{reviewer}
+``The claim that training buys efficiency rather than coverage also seems specific to Mondrian
+calibration \ldots Moreover, the accuracy--set size correlation is weak in one of the four settings.
+The authors should state this claim as conditional on Mondrian calibration and provide statistical
+significance or uncertainty for the reported correlations.''
+\end{reviewer}
+
+Both implemented, and the reviewer's concern proved larger than stated.
+
+\where{Abstract, introduction, Section~5.4 and the discussion (conditioning); Table~5
+(intervals).}
+
+The claim is now \textbf{explicitly conditional on Mondrian}. And with cluster-bootstrap intervals,
+the correlation is uninformative not in one of four settings but in \textbf{five of eight} ---
+including the $-0.97$ and $-1.00$ we previously highlighted, which at $n=4$ methods are not evidence
+of a deterministic relationship. Table~5 now prints each interval, italicised where it spans
+essentially $[-1, +1]$, and the text reports a direction rather than an estimate.
+
+\section*{Changes we made without being asked}
+
+Three, all disclosed so that no reader discovers a silent alteration.
+
+\begin{enumerate}[leftmargin=1.4em,itemsep=0.35em]
+\item \textbf{A definitional inconsistency in Section~3.} The coverage gap was defined in a way
+that contradicted both the implementation and Appendix~B. It now reads
+$(1-\alpha) - \min_g \mathrm{cov}_g$, matching both.
+\item \textbf{A rendering defect in the predicted-group table.} It declared eight columns and
+supplied seven, leaving a stray empty column. Fixed during the rewrite; all nine tables now pass a
+column-count check.
+\item \textbf{An empty-set disclosure.} On DINOv2/Waterbirds the mean worst-group set size is
+\emph{below one} ($0.926$--$0.964$ across scores), meaning a small fraction of prediction sets are
+empty. This is a legitimate outcome of standard split conformal with a highly accurate model, and
+coverage there remains valid, but a reader expecting sets of size $\ge 1$ would otherwise be
+confused. We report it rather than clipping sets to a minimum of one, which would hide it.
+\end{enumerate}
+
+\vspace{0.4em}
+\noindent\textcolor{rulegrey}{\rule{\textwidth}{1pt}}
+
+We are grateful for the care the reviewers took. The revision is materially more honest than the
+submission: two analyses were corrected, four claims withdrawn, and one pre-specified criterion
+reported as failing in seven of eight cells. We believe the paper's central finding is stronger for
+it, since it now rests on eight backbone--dataset cells and on a study in which the representation
+itself is retrained, rather than on the absolute dichotomy the reviewers rightly questioned.
+
+\end{document}
