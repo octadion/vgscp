@@ -84,6 +84,23 @@ for f, pat, got in (("response-to-reviewers.tex",
     if not re.search(pat, re.sub(r"\s+", " ", DOCS[f])):
         bad.append(f"  [{f}] hitungan tabel tidak cocok dengan {n_tab} ({n_body} badan)")
 
+print("=== statistik before/after diturunkan dari manuskrip ===")
+# before-after.tex tabulates facts about the manuscript. Three of them went stale the moment the
+# appendix shrank -- the source-line count, the equation count, and a claim that Appendix B holds
+# every (setting, method, score) number, which stopped being true when the grids came out. Derive
+# them here so the table cannot drift from the file it describes.
+n_lines = len(PAPER.splitlines())
+n_eq = len(re.findall(r"\\label\{eq:", PAPER))
+ba = re.sub(r"\s+", " ", DOCS["before-after.tex"])
+print(f"  manuskrip: {n_lines} baris sumber, {n_eq} persamaan bernomor")
+if not re.search(rf"Source lines & 1\{{,\}}034 & {n_lines // 1000}\{{,\}}{n_lines % 1000:03d} &", ba):
+    bad.append(f"  [before-after.tex] hitungan baris sumber bukan {n_lines}")
+if not re.search(rf"Numbered equations & 3 & {n_eq} &", ba):
+    bad.append(f"  [before-after.tex] hitungan persamaan bernomor bukan {n_eq}")
+forbid(r"every \(setting, method, score\) number behind the body",
+       "grid per-metode tidak dicetak lagi; Appendix B memuat ringkasan, bukan setiap sel",
+       where=("before-after.tex", "response-to-reviewers.tex"))
+
 print("=== nomor tabel appendiks yang dirujuk ada ===")
 labels = re.findall(r"\\label\{tab:([^}]+)\}", PAPER) + \
          re.findall(r"\\label\{tab:([^}]+)\}", DOCS["appendix-tables.tex"])
