@@ -378,9 +378,6 @@ so that the spurious attribute aligns with the majority label pattern with proba
 $\rho$, holding the class balance fixed; the realised $\rho$ is logged per draw. Calibration uses $\rhocal=0.95$;
 final-test coverage is read at each $\rhotest\in\{0.95,0.9,0.8,0.7,0.6,0.5\}$.
 
-Mondrian falls back to the pooled quantile if a group's calibration count drops below
-a minimum, which these runs never trigger (Appendix~\ref{app:hyper}).
-
 \paragraph{Uncertainty.} Point estimates are means over five training seeds for the
 main grid and the fine-tuning study, and three for the calibration comparison, each with
 ten calibration splits. The comparison uses fewer seeds because it evaluates every
@@ -1132,24 +1129,15 @@ ViT-B/16 & --- & --- & --- & 36 \\
 \subsection*{The minimum over groups, and where $1.03$ comes from}
 
 Appendix~\ref{app:subtarget} uses the approximation
-$\mathbb{E}[\min_g\cov_g]\approx(1-\alpha)-c_{|\mathcal{G}|}\,\sigma$. The constant is
-the expected value of the minimum of $|\mathcal{G}|$ standard normals. Writing
-$Z_{(1)}=\min_{j\le k}Z_j$ for i.i.d.\ $Z_j\sim\mathcal{N}(0,1)$,
-\begin{equation}
-\begin{aligned}
-c_k &= -\,\mathbb{E}\big[Z_{(1)}\big] \\
-    &= k\int_{-\infty}^{\infty} z\,\phi(z)\,\big[1-\Phi(z)\big]^{k-1}\,dz ,
-\end{aligned}
-\label{eq:minconst}
-\end{equation}
-using $f_{Z_{(1)}}(z)=k\phi(z)[1-\Phi(z)]^{k-1}$. Evaluating gives $c_2=0.564$,
-$c_3=0.846$, $c_4=1.029$ and $c_5=1.163$. With four groups the reported minimum
-therefore sits about one per-group standard deviation below the mean over groups even
-when every group is exactly valid, which is the first of the two effects in
-Appendix~\ref{app:subtarget}. Treating the per-group coverages as independent and
+$\mathbb{E}[\min_g\cov_g]\approx(1-\alpha)-c_{|\mathcal{G}|}\,\sigma$, in which $c_k$ is minus the
+expected minimum of $k$ standard normals: $-\mathbb{E}[\min_{j\le k}Z_j]=k\int
+z\,\phi(z)[1-\Phi(z)]^{k-1}\,dz$, giving $c_2=0.564$, $c_3=0.846$, $c_4=1.029$ and $c_5=1.163$.
+With four groups the reported minimum therefore sits about one per-group standard deviation below
+the mean over groups even when every group is exactly valid, which is the first of the two effects
+in Appendix~\ref{app:subtarget}. Treating the per-group coverages as independent and
 Gaussian is an approximation---they share a test set, and coverage is an average of
-Bernoulli draws---so we use \eqref{eq:minconst} only to set the scale, and rely on the
-simulation of Table~\ref{tab:subtarget} for the value we compare against.
+Bernoulli draws---so the constant only sets the scale, and the value we compare against comes from
+the simulation of Table~\ref{tab:subtarget}.
 
 \subsection*{Why $\Wone$ carries no bound}
 
@@ -1375,11 +1363,10 @@ relevant number, but always beside the mean so the two are not confused.
 \section{Pre-Specified Hypotheses}
 \label{app:hyps}
 
-We fixed these six statements, and the per-method accuracy floors of
-Appendix~\ref{app:excl}, before running any of the experiments they concern. They were
-not lodged in a public registry, so they are pre-specified rather than preregistered.
-Each could have come back negative; Section~\ref{sec:results} reports what the data
-returned. Two came back split, and Table~\ref{tab:hypverdict} records what each returned rather than leaving the verdicts spread across Section~\ref{sec:results}. H\ref{hyp:c1} has two clauses: that Mondrian's worst-group coverage is near target for
+These are the six statements fixed before the experiments they concern
+(Section~\ref{sec:exp}). Each could have come back negative, and
+Table~\ref{tab:hypverdict} collects what each returned rather than leaving the verdicts spread
+across Section~\ref{sec:results}. Two came back split. H\ref{hyp:c1} has two clauses: that Mondrian's worst-group coverage is near target for
 every training method, and that marginal split's falls below target by a training-dependent
 amount. The second is confirmed in all eight settings. The first is \textbf{not met} on our own
 operationalisation---the C1 criterion below asks for Mondrian within $0.02$ of target, and
@@ -1470,17 +1457,12 @@ All may return negative; we report whatever the data show.
 \section{Excluded and Flagged Methods, and Their Influence}
 \label{app:excl}
 
-\paragraph{Where the floors come from.} We set the per-method worst-group accuracy
-floors before running any of these experiments, so no result influenced them, but we did
-not register them publicly. The floors are $0.30$ for ERM and $0.75$ for the robust
-methods on CelebA, and $0.30$ and $0.40$--$0.45$ on Waterbirds.
-
-\paragraph{What was excluded.} $33$ of $200$ runs: AFR on all four CelebA backbones,
-all seeds ($0.013$--$0.434$); ERM on DINOv2/CelebA ($0.203$) and ViT-B/16/CelebA
-($0.263$); GroupDRO-LL seeds $1$ and $4$ on CelebA/ResNet-50 ($0.676$, $0.683$); and
-balanced subsampling seed $4$ there ($0.730$). Twelve DFR runs on CelebA sit just below
-a soft reference of $0.85$ ($0.808$--$0.847$) and are kept, flagged.
-Table~\ref{tab:dagger} gives the two excluded ERM settings in full: these are the
+\paragraph{The floors, and what they excluded.} The floors are $0.30$ for ERM and $0.75$ for the
+robust methods on CelebA, and $0.30$ and $0.40$--$0.45$ on Waterbirds. Section~\ref{sec:exp}
+summarises the $33$ runs of $200$ they exclude; at seed level those are GroupDRO-LL seeds $1$ and
+$4$ on CelebA/ResNet-50 ($0.676$, $0.683$) and balanced subsampling seed $4$ there ($0.730$), and
+the twelve kept-but-flagged runs are all DFR on CelebA, at $0.808$--$0.847$ against the soft
+reference of $0.85$. Table~\ref{tab:dagger} gives the two excluded ERM settings in full: these are the
 values carried with a dagger in Tables~\ref{tab:c1} and~\ref{tab:h1}, reported so that
 the reader can see what the excluded baseline would have contributed.
 
@@ -1543,41 +1525,29 @@ rather than either alone.
 
 \section{Procedures, Hyperparameters, and Statistics}
 \label{app:hyper}
-\textbf{Features.} Four frozen backbones, extracted once and cached: an ERM-trained
-ResNet-50 ($d{=}2048$), CLIP ViT-B/32 ($d{=}512$, image--text contrastive), DINOv2
-ViT-B/14 ($d{=}768$, self-supervised) and a supervised ImageNet ViT-B/16 ($d{=}768$).
-All last-layer training runs on these cached features.
-\textbf{Heads.} ERM (cross-entropy); DFR (group-balanced last-layer retraining);
-AFR (automatic feature reweighting); balanced subsampling; last-layer GroupDRO.
-\textbf{Calibration.} marginal split (one global quantile); Mondrian (a separate
-quantile per group $g$, with a fallback to the pooled quantile when a group's
-calibration count $n_g<50$); shift-robust (worst-case threshold over a
-total-variation ball of radius $\epsilon=0.1$ around the calibration distribution;
-under APS and RAPS results are insensitive over $\epsilon\in[0.05,0.2]$, trading $1$--$5$ points of
-over-coverage for stability); $1-\alpha=0.90$. \textbf{Scores.} THR, APS, RAPS
-(with standard tail regularization). \textbf{Shift.}
-$\rhocal=0.95$; $\rhotest\in\{0.95,0.9,0.8,0.7,0.6,0.5\}$ via reweighted/composited
-evaluation distributions, with realized $\rho$ logged. \textbf{Seeds/splits.}
-$\ge3$ training seeds $\times\ge10$ calibration splits; $95\%$ CIs by bootstrap;
-training-seed standard deviation and calibration-split standard deviation reported
-separately per aggregate. \textbf{Why matching at split level misleads.} Pooling each method's
+The backbones, the five last-layer methods, the three scores, the correlation-strength grid and
+the seed and split counts are those of Sections~\ref{sec:setup} and~\ref{sec:exp}; this appendix
+gives the values and procedures they leave open. DFR is group-balanced last-layer retraining and
+AFR is automatic feature reweighting.
+\textbf{Calibration.} Mondrian falls back to the pooled quantile when a group's calibration count
+is $n_g<50$, which these runs never trigger. Shift-robust takes the worst case over a
+total-variation ball of radius $\epsilon=0.1$ around the calibration distribution; under APS and
+RAPS the results are insensitive over $\epsilon\in[0.05,0.2]$, trading $1$--$5$ points of
+over-coverage for stability. Target $1-\alpha=0.90$ throughout.
+\textbf{Why matching at split level misleads.} Pooling each method's
 $(\mathrm{acc},D)$ points across seeds \emph{and} calibration splits is the natural way
 to get enough points to interpolate, but the accuracy axis it produces is mostly
-evaluation-draw noise. ERM's per-seed base accuracy is identical to five decimals in
-every setting, because its last-layer solver is deterministic, so all of its apparent
-accuracy spread comes from which evaluation rows were drawn. Matching on that spread
+evaluation-draw noise: ERM's per-seed base accuracy is identical to five decimals in
+every setting, so all of its apparent spread comes from which evaluation rows were drawn.
+Matching on that spread
 compares ERM on unlucky draws against a robust method on lucky ones, and a bootstrap
-over the pooled points treats nested rows as independent draws. We therefore match at
+over the pooled points treats nested rows as independent draws. Hence the matching is at
 model level, with one accuracy per training seed.
-\textbf{Accuracy matching.} accuracy is overall (base)
-top-1 on the evaluation distribution; from the per-seed $(\mathrm{acc},D)$ clouds of
-$m$ and ERM we take $a^\star$ in the overlapping accuracy range and read each
-method's $D(a^\star)$ by linear interpolation of its cloud, bootstrapping over
-seeds; $\Delta(a^\star)$ is \texttt{unmatched} when the supports are disjoint.
-\textbf{Recoverability.} StandardScaler $\to$ logistic
-regression, in-domain train$\to$test; we also project out the top-$k$ spurious-predictive directions, $k\in\{0,1,5,20\}$. \textbf{Predicted-group
-Mondrian.} the recoverability probe predicts the stratum $2y+\hat a$; thresholds
-and/or test assignment use $\hat a$; coverage is always scored on true groups.
+\textbf{Accuracy matching.} Accuracy is overall (base)
+top-1 on the evaluation distribution, and each method's $D(a^\star)$ is read off its per-seed
+cloud by linear interpolation.
+\textbf{Recoverability.} Beyond the probe of Section~\ref{sec:setup} we project out the top-$k$
+spurious-predictive directions, $k\in\{0,1,5,20\}$.
 \textbf{Calibration/test construction (exact).} For each of $10$ split seeds the
 evaluation set is partitioned once into disjoint halves by a seeded permutation; the
 first half is the calibration reservoir and the second the test reservoir, so no row is
