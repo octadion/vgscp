@@ -42,8 +42,9 @@
 
 \noindent\textcolor{rulegrey}{\rule{\textwidth}{1pt}}
 
-\textbf{Manuscript.} Worst-Group Conformal Reliability under Spurious Correlation Is More a
-Calibration Problem than a Representation Problem: A Confound-Controlled Multi-Backbone Study
+\textbf{Manuscript.} Calibration Beats Robust Training for Worst-Group Coverage
+\quad(submitted as \emph{Worst-Group Conformal Reliability under Spurious Correlation Is a
+Calibration Problem, Not a Representation Problem})
 
 \textbf{Submission ID.} 62d20e3d-c3eb-4568-b964-7b09cf6f583b \quad ACML 2026 collection,
 \emph{Machine Learning}
@@ -67,7 +68,7 @@ Backbones & \was{2} (ResNet-50, CLIP) & \now{4} (adds DINOv2 ViT-B/14, ViT-B/16 
 \addlinespace
 Architecture families & \was{1 CNN + 1 ViT} & \now{1 CNN + 3 ViT, three pretraining regimes} \\
 \addlinespace
-Backbone--dataset cells & \was{4} & \now{8} \\
+Backbone--dataset settings & \was{4} & \now{8} \\
 \addlinespace
 Representation retrained? & \was{No --- backbone frozen throughout} &
 \now{Yes --- end-to-end fine-tuning under three objectives} \\
@@ -82,7 +83,9 @@ Training seeds & \was{3} &
 Uncertainty & \was{Bootstrap over pooled (seed, split) rows} &
 \now{Two-stage cluster bootstrap: seeds, then splits within seeds} \\
 \addlinespace
-Equivalence testing & \was{None} & \now{Two-one-sided tests on the efficiency spread} \\
+Equivalence testing & \was{None} & \now{Two-one-sided tests on both claims: the
+across-method coverage spread (equivalent to zero at a $0.05$ margin in $8/8$ settings) and the
+efficiency spread (equivalence \emph{rejected} at $0.10$ in $6/8$)} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -95,22 +98,23 @@ Equivalence testing & \was{None} & \now{Two-one-sided tests on the efficiency sp
 \textbf{Submitted} & \was{Worst-Group Conformal Reliability under Spurious Correlation Is a
 Calibration Problem, \textbf{Not} a Representation Problem} \\
 \addlinespace
-\textbf{Revised} & \now{Worst-Group Conformal Reliability under Spurious Correlation Is
-\textbf{More} a Calibration Problem \textbf{than} a Representation Problem} \\
+\textbf{Revised} & \now{Calibration \textbf{Beats} Robust Training \textbf{for}
+Worst-Group Coverage} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The subtitle, \emph{A Confound-Controlled Multi-Backbone Study}, is unchanged. The same absolute-to-
-comparative softening was applied in fifteen further places, so that the paper does not argue one
-thing in its title and another in its body. The most visible is the Section~5.1 heading:
+The title now names the comparison the paper actually runs, rather than asserting what
+coverage \emph{is}; the subtitle was dropped with it. The same absolute-to-comparative softening
+was applied in fifteen further places, so that the paper does not argue one thing in its title and
+another in its body. The most visible is the Section~5.1 heading:
 
 \begin{center}
 \begin{tabular}{@{}L{1.9cm}L{12.6cm}@{}}
 \toprule
 \textbf{Submitted} & \was{Coverage Is a Calibration Property, Not a Representation One} \\
 \addlinespace
-\textbf{Revised} & \now{Calibration Governs Worst-Group Coverage Far More than Training Does} \\
+\textbf{Revised} & \now{The Calibration Rule Moves Coverage More Than Training Does} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -129,32 +133,58 @@ Counts extracted from the two versions of the source.
 \toprule
 & \textbf{Submitted} & \textbf{Revised} & \textbf{Note} \\
 \midrule
-Source lines & 1{,}034 & 1{,}469 & $+42\%$ \\
-Tables & 6 & 9 & adds literature, fine-tuning, sub-target \\
-Figures & 4 & 6 & all six regenerated; none carried over \\
-Numbered equations & 3 & 5 & the two added are in Proposition~1(ii) \\
+Source lines & 1{,}034 & 1{,}765 & $+71\%$, most of it appendix tables \\
+Tables & 6 & 22 & 7 in the body, 15 in the appendix \\
+Figures & 4 & 7 & all seven regenerated; none carried over \\
+Numbered equations & 3 & 7 & two are in Proposition~1(ii) \\
 Propositions & 1 & 1 & part (ii) rewritten \\
-Main sections & 17 & 13 & consolidated for readability \\
-Appendices & 8 & 4 & consolidated; see below \\
-Unique citations & 25 & 26 & the one requested addition \\
+Main headings & 17 & 13 & 8 sections, 5 result subsections \\
+Appendices & 8 & 6 & reorganised; see below \\
+Unique citations & 25 & 33 & includes the one requested addition \\
 Schematic (TikZ) diagrams & 1 & 0 & replaced by a figure built from data \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\textbf{Appendices were consolidated, not deleted.} The submitted version had eight short
-appendices, one per hypothesis (\texttt{app:c1}, \texttt{app:h1}, \texttt{app:h2}, \texttt{app:h3},
-\texttt{app:predgroup}, \texttt{app:shiftrobust}, \texttt{app:excl}, \texttt{app:hyper}). The
-revision has four longer ones: supplementary records (\texttt{app:supp}), the sub-target level
-(\texttt{app:subtarget}, new), the exclusion sensitivity analysis (\texttt{app:excl}, expanded per
-R2.4), and reproducibility (\texttt{app:hyper}, expanded per R2.6). The per-hypothesis material was
-folded into the first of these; nothing was dropped without being reported.
+\textbf{The appendix was reorganised and expanded, not thinned.} The submitted version had
+eight short appendices, one per hypothesis (\texttt{app:c1}, \texttt{app:h1}, \texttt{app:h2},
+\texttt{app:h3}, \texttt{app:predgroup}, \texttt{app:shiftrobust}, \texttt{app:excl},
+\texttt{app:hyper}). The revision has six, organised by what they hold rather than by which
+hypothesis they belong to:
+
+\begin{center}
+\begin{tabular}{@{}L{1.0cm}L{5.6cm}L{7.6cm}@{}}
+\toprule
+& \textbf{Appendix} & \textbf{What is in it} \\
+\midrule
+A & Derivations & Proof of Proposition~1; where the worst group actually lands
+(Table~A1, new); the constant $c_{4}=1.029$; a construction showing $W_1$ carries no bound \\
+\addlinespace
+B & Full Results & Tables~B2--B11, including per-group coverage for all four groups:
+every (setting, method, score) number behind the body \\
+\addlinespace
+C & Why Mondrian sits below target & The min-over-groups effect, simulated at our own
+per-group counts (Table~C12, Figure~C1) --- R1.1 \\
+\addlinespace
+D & Pre-specified hypotheses & The six hypotheses as fixed before the experiments --- R2.4 \\
+\addlinespace
+E & Excluded and flagged methods & Sensitivity analysis, separated into seed-level and
+method-level restoration; the AFR diagnosis; the daggered values (Table~E14) --- R2.4 \\
+\addlinespace
+F & Procedures and statistics & Exact calibration/test construction with per-group counts
+(Table~F15), all hyperparameters, the shift-robust threshold in closed form, seeds --- R2.6 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The per-hypothesis material was folded into these; nothing was dropped without being reported. The
+appendix grew from prose into tables: it now carries $15$ of the paper's $22$ tables.
 
 \section{Figures: a complete replacement}
 
 Every figure in the submitted paper was a one-off chart for a single backbone--dataset pair, which
 is exactly the generality problem R1.3 raised. Every figure in the revision summarises all eight
-cells or the new fine-tuning study.
+settings or the new fine-tuning study.
 
 \begin{center}
 \begin{tabular}{@{}L{6.4cm}L{8.2cm}@{}}
@@ -162,10 +192,10 @@ cells or the new fine-tuning study.
 \textbf{Removed} & \textbf{Added} \\
 \midrule
 \was{\texttt{c1\_clip\_celeba}} & \now{\texttt{teaser\_method} --- the confound on real images, the
-mechanism fitted to a measured cell, the coverage recovered, and its cost in set size} \\
+mechanism fitted to a measured setting, the coverage recovered, and its cost in set size} \\
 \addlinespace
 \was{\texttt{c1\_resnet\_waterbirds}} & \now{\texttt{c1\_erm\_lift} --- the same ERM model under
-both policies, all eight cells} \\
+both policies, all eight settings} \\
 \addlinespace
 \was{\texttt{shift\_clip\_waterbirds}} & \now{\texttt{shift\_mondrian\_vs\_marginal} --- coverage
 against $\rho_{\mathrm{test}}$, envelope across all four backbones} \\
@@ -178,12 +208,16 @@ accuracy-matched comparison is usually unavailable (R2.3)} \\
 \addlinespace
 \was{TikZ schematic, \texttt{fig:audit}} & \now{\texttt{subtarget\_law\_vs\_observed} --- observed
 coverage against the exactly valid law (R1.1)} \\
+\addlinespace
+\was{---} & \now{\texttt{mechanism\_ks} --- the shortfall against its KS bound, and the divergence
+against the gain a per-group threshold delivers (R2.2)} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-All six are exported as vector PDF alongside a PNG preview, and all six are generated by a module
-that ships with the archived code, so the figures reproduce along with the tables.
+All seven are exported as vector PDF alongside a PNG preview, and all seven are generated by
+a module that ships with the archived code, so the figures reproduce along with the tables. Six sit
+in the body; only the sub-target figure is in the appendix, beside the analysis it belongs to.
 
 \section{Claims withdrawn}
 \label{sec:withdrawn}
@@ -195,15 +229,16 @@ intervals.
 \begin{enumerate}[leftmargin=1.5em,itemsep=0.4em]
 \item \textbf{``Mondrian is $2$--$4\times$ more split-stable than marginal calibration.''} True on
 the two backbones of the submission; false on four. Marginal's split-to-split SD is
-$0.009$--$0.042$ against Mondrian's $0.023$--$0.034$, and in two of the eight cells Mondrian is the
-\emph{less} stable of the two. Mondrian's advantage is in the level it attains, not in its variance.
+$0.007$--$0.043$ against Mondrian's $0.021$--$0.036$, and in five of the eight settings
+Mondrian is the \emph{less} stable of the two. Mondrian's advantage is in the level it attains, not
+in its variance.
 \item \textbf{``The absolute efficiency range is narrow.''} The spread runs $0.036$ to $0.364$, and
-a two-one-sided-test equivalence check rejects equivalence at a $0.10$ margin in six of eight cells.
+a two-one-sided-test equivalence check rejects equivalence at a $0.10$ margin in six of eight settings.
 \item \textbf{``Training buys efficiency, not coverage''} is now stated as conditional on Mondrian.
 Under marginal calibration, training still moves coverage.
-\item \textbf{The per-cell accuracy--set-size correlations.} Reported bare in the submission,
+\item \textbf{The per-setting accuracy--set-size correlations.} Reported bare in the submission,
 including a $-0.97$ and a $-1.00$. With cluster-bootstrap intervals they are uninformative in five
-of eight cells, each resting on only three to five methods. The revision reports a direction, not
+of eight settings, each resting on only three to five methods. The revision reports a direction, not
 an estimate.
 \end{enumerate}
 
@@ -225,7 +260,7 @@ Accuracy-matched divergence reduction, balanced subsampling on ResNet-50/Waterbi
 \addlinespace
 Accuracy-matched divergence reduction, GroupDRO-LL on ResNet-50/Waterbirds &
 \was{Reported without an interval} &
-\now{$+0.084\,[+0.076,+0.095]$ --- replicates, and the only matched cell of eight} \\
+\now{$+0.084\,[+0.076,+0.095]$ --- replicates, and the only matched setting of eight} \\
 \addlinespace
 Definition of the coverage gap &
 \was{Inconsistent with the implementation and the appendix} &
@@ -233,18 +268,18 @@ Definition of the coverage gap &
 \addlinespace
 Pre-specified C1 criterion &
 \was{Reported as supporting the claim} &
-\now{Met in one of eight cells, and that cell flips to failing when the gated AFR arm is included}
+\now{Met in one of eight settings, and that setting flips to failing when the excluded AFR method is included}
 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 The cause of the two retractions is worth stating precisely, because it is the kind of error that
-survives review: the submitted analysis pooled each arm's (accuracy, divergence) points across
+survives review: the submitted analysis pooled each method's (accuracy, divergence) points across
 seeds \emph{and} calibration splits. ERM's solver is deterministic, so its per-seed accuracy is
 identical to five decimals, while its across-split range is $0.02$--$0.03$. The accuracy axis ERM
 appeared to span was therefore \emph{which evaluation rows were drawn}, not \emph{which model was
-trained}, and matching on it compared ERM on unlucky draws against a robust arm on lucky ones.
+trained}, and matching on it compared ERM on unlucky draws against a robust method on lucky ones.
 
 \section{New content}
 
@@ -253,29 +288,45 @@ trained}, and matching on it compared ERM on unlucky draws against a robust arm 
 \toprule
 \textbf{Location} & \textbf{Content} \\
 \midrule
-Section~5.2, Table~4, \texttt{repr\_lever} & \now{End-to-end fine-tuning study: the representation
+Section~5.2, Table~3, Figure~4 & \now{End-to-end fine-tuning study: the representation
 itself is retrained under ERM, GroupDRO and reweighting, five seeds each, head held fixed. Opens
-with a manipulation check confirming the lever moved (worst-group accuracy $0.516 \to 0.738$ on
-Waterbirds).} \\
+with a manipulation check confirming the intervention moved the representation (worst-group
+accuracy $0.516 \to 0.738$ on Waterbirds).} \\
 \addlinespace
-Table~2 and three paragraphs & \now{Comparison with published worst-group accuracies, including the
-three protocol differences that explain why our arms sit $10$--$24$ points below them.} \\
+Table~1 and one paragraph & \now{Comparison with published worst-group accuracies. The
+three protocol differences that explain why our Waterbirds runs sit $12$--$26$ points below
+them are set out in Appendix~F.} \\
 \addlinespace
 Section~3, Proposition~1(ii) & \now{Exact shortfall identity and the KS bound that follows, plus a
 remark on what $W_1$ and $D_{\mathrm{KS}}$ do and do not give.} \\
 \addlinespace
-Appendix~B, Table~8, \texttt{subtarget\_law\_vs\_observed} & \now{The sub-target level explained and
-measured against an exactly valid Mondrian procedure simulated at our own per-group counts.} \\
+Appendix~C, Table~C12, Figure~C1 & \now{The sub-target level explained and measured
+against an exactly valid Mondrian procedure simulated at our own per-group counts.} \\
 \addlinespace
-Appendix~C & \now{Sensitivity analysis over every excluded run, and the diagnosis of AFR's collapse
-as a class-prior inversion with an oracle upper bound.} \\
+Appendix~B, Table~B2 & \now{Per-group coverage for all four groups, from a re-run of the
+evaluation on the released splits: every group within $0.886$--$0.917$ under per-group thresholds,
+so the sub-target minimum is a min-over-groups effect rather than under-coverage.} \\
 \addlinespace
-Section~5.8 and ethics & \now{Predicted-group mechanics, the supervision actually required, the
-asymmetric propagation of probe error, and the privacy limits on inferring a sensitive attribute.}
-\\
+Appendix~F & \now{The compositing draws with replacement, so a group's nominal count can exceed the
+distinct images behind it---CelebA's aligned $g_3$ reaches $7{,}095$ rows from $140$ images. Also
+that AFR alone does not reproduce bit-exactly, and why.} \\
 \addlinespace
-Appendix~D & \now{Exact calibration/test construction, per-group counts, all hyperparameters, the
-shift-robust threshold in closed form, seeds, and run times.} \\
+Appendix~A, Table~A1 & \now{Where the worst group actually lands, and how large that group
+is: pinned on one group under a shared threshold---holding $2.5\%$ of the calibration set on
+Waterbirds but $47.5\%$ on CelebA---and scattered under per-group thresholds, which is what
+validity in every group implies and what makes the min-over-groups effect bite.} \\
+\addlinespace
+Appendix~E & \now{Sensitivity analysis over every excluded run, reported separately for
+seed-level and method-level exclusions, and the diagnosis of AFR's collapse as a class-prior
+inversion with an oracle upper bound.} \\
+\addlinespace
+Section~5.5 and ethics & \now{Predicted-group mechanics, the supervision actually required,
+the asymmetric propagation of probe error, and the privacy limits on inferring a sensitive
+attribute.} \\
+\addlinespace
+Appendix~F, Table~F15 & \now{Exact calibration/test construction with per-group
+calibration and test counts, all hyperparameters, the shift-robust threshold in closed form, seeds,
+and run times.} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -285,19 +336,21 @@ shift-robust threshold in closed form, seeds, and run times.} \\
 \begin{enumerate}[leftmargin=1.5em,itemsep=0.35em]
 \item A definitional inconsistency in the coverage gap (above).
 \item A rendering defect in the predicted-group table, which declared eight columns and supplied
-seven. All nine tables now pass a column-count check.
+seven. All twenty-two tables now pass a column-count check, none has a column that is blank in
+every row, and every one was measured against the text block so that none runs into the margin.
 \item An empty-set disclosure: on DINOv2/Waterbirds the mean worst-group set size is below one
-($0.926$--$0.964$), so a small fraction of prediction sets are empty. This is legitimate for split
+($0.888$--$0.962$ across methods and scores), so a small fraction of prediction sets are
+empty. This is legitimate for split
 conformal with a highly accurate model and coverage remains valid, but we report it rather than
 clip sets to a minimum of one, which would hide it.
 \end{enumerate}
 
 \section{What did not change}
 
-The central finding is unchanged and now rests on twice the cells and on a study in which the
+The central finding is unchanged and now rests on twice the settings and on a study in which the
 representation itself is retrained. Under marginal calibration, worst-group coverage tracks the
 training method and collapses as low as $0.509$; under Mondrian calibration it lands in
-$0.854$--$0.886$ in every cell, and the cross-training spread never exceeds $0.024$. The
+$0.84$--$0.89$ in every setting, and the cross-training spread never exceeds $0.024$. The
 dissociation holds across all four backbones, across three conformity scores, across the
 correlation-strength sweep, under predicted rather than true groups, and when the representation is
 fine-tuned end-to-end.
