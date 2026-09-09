@@ -86,6 +86,18 @@ for m in re.finditer(r"\\begin\{(tabular|longtable)\}(?:\[[^\]]*\])?\{", s):
              or [None, "?"])[1]
     check(widths <= {ncol}, f"{label}: spesifikasi {ncol} kolom, baris memakai {sorted(widths)}")
 
+# sn-jnl.cls saves the original table environment as `tableorg` and rewraps it in threeparttable,
+# passing the placement straight through. The float package is loaded after the class, so its [H]
+# handling never reaches the float that is actually opened: \@captype is left unset, the first
+# \caption dies with an undefined control sequence, and every \end{...} after it mismatches. This
+# cost a compile. [!ht] is the compatible equivalent -- the ! drops the topfraction/textfraction
+# restrictions for that float, which is what defers a large table in the first place.
+check(not re.search(r"\\usepackage(?:\[[^\]]*\])?\{float\}", s),
+      "paket float tidak dimuat (tidak kompatibel dengan sn-jnl: pakai [!ht], bukan [H])")
+hplace = [ln for ln, t in enumerate(s.splitlines(), 1)
+          if re.match(r"\\begin\{(?:table|figure)\}\[H\]", t)]
+check(not hplace, f"tidak ada penempatan [H] (baris {hplace})")
+
 print(f"\n{len(s.splitlines())} baris, {len(inc)} gambar, "
       f"{len(re.findall(r'begin.tabular', s))} tabel")
 print("SEMUA LULUS" if not bad else f"{bad} GAGAL")

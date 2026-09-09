@@ -1,4 +1,4 @@
-\begin{table}[H]
+\begin{table}[!ht]
 \centering
 \caption{The dissociation across all three conformity scores ($\rhocal=\rhotest=0.95$): the spread in worst-group coverage across the kept training methods, under one shared threshold and under per-group thresholds.}
 \label{tab:scorespread}
@@ -24,7 +24,7 @@ ViT-B/16 & 0.003 & 0.008 & 0.002 & 0.008 & 0.004 & 0.001 \\
 \end{tabular}
 \end{table}
 
-\begin{table}[H]
+\begin{table}[!ht]
 \centering
 \caption{Cross-group conformity-score divergences under one shared threshold ($\rhocal=\rhotest=0.95$), averaged over the kept training methods. $D_{\mathrm{KS}}$ is the quantity bounded in Eq.~\eqref{eq:ksbound}; $\Wone$, given for APS alone, is a descriptive summary and enters no bound.}
 \label{tab:div}
@@ -48,7 +48,7 @@ ViT-B/16 & 0.050 & 0.050 & 0.279 & 0.026 \\
 \end{tabular}
 \end{table}
 
-\begin{table}[H]
+\begin{table}[!ht]
 \centering
 \caption{The fine-tuning study with its across-seed spread: the ResNet-50 retrained end-to-end under three objectives with the head held fixed at plain ERM ($\rhocal=\rhotest=0.95$). Values are means over five fine-tuning seeds; the two coverage columns carry the across-seed standard deviation in brackets, and worst-group accuracy is a per-objective mean that does not vary with the conformity score. RAPS tracks APS to within $0.005$ throughout and is in the released records.}
 \label{tab:reprfull}
@@ -76,7 +76,7 @@ Reweighting & APS & 0.364 & 0.806\,[0.010] & 0.881\,[0.005] \\
 \end{tabular}
 \end{table}
 
-\begin{table}[H]
+\begin{table}[!ht]
 \centering
 \caption{Predicted-group calibration: worst-group coverage under all three conditions ($\rhocal=\rhotest=0.95$), averaged over the kept training methods, for the headline score and for THR. Coverage is always scored against the true groups. RAPS is within $0.002$ of APS in every cell and is in the released records.}
 \label{tab:pgfull}
@@ -108,7 +108,7 @@ ViT-B/16 & APS & 0.877 & 0.878 & 0.877 & 0.993 \\
 \end{tabular}
 \end{table}
 
-\begin{table}[H]
+\begin{table}[!ht]
 \centering
 \caption{Where the variance sits, and how the two rules compare on it. For each setting, the standard deviation of worst-group coverage across training seeds and across calibration splits (APS, per-group thresholds for the first two columns, $\rhocal=\rhotest=0.95$), averaged over the kept training methods; the last column repeats the split-to-split figure under one shared threshold. ERM and AFR are omitted: their solver ignores the seed, so their across-seed standard deviation is exactly zero.}
 \label{tab:variance}

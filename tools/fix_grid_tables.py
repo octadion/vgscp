@@ -128,7 +128,7 @@ for ds in DS:
         sp_rows.append(" & ".join([NAME[bb]] + cells) + r" \\")
 
 summary_block = "\n".join(
-    [r"\begin{table}[H]", r"\centering",
+    [r"\begin{table}[!ht]", r"\centering",
      # The ranges and the count of exceptions are stated in the paragraph that cites this table,
      # two paragraphs above it, so the caption gives the reading of the columns and nothing else.
      r"\caption{The dissociation across all three conformity scores "

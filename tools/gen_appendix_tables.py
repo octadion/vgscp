@@ -58,7 +58,7 @@ def f(x, d=3):
 
 
 def head(title, label, spec, cols, small="footnotesize"):
-    out.append(r"\begin{table}[H]" "\n" r"\centering")
+    out.append(r"\begin{table}[!ht]" "\n" r"\centering")
     out.append(f"\\caption{{{title}}}")
     out.append(f"\\label{{{label}}}")
     out.append(f"\\{small}")
