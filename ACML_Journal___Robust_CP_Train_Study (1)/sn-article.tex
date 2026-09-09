@@ -6,6 +6,7 @@
 \usepackage[title]{appendix}%
 \usepackage{booktabs}%
 \usepackage{longtable}%
+\usepackage{float}% [H] for the appendix tables, which are read in order and have no reason to float%
 \usepackage{array}% >{...} column modifiers in the verdict table
 \usepackage[section]{placeins}% keep a section's floats from drifting into the next one
 % Float placement. The class defaults assume a document with few floats; with 22 tables they force
@@ -1113,7 +1114,7 @@ models. And the identity of the worst group carries little information under
 per-group calibration, which is why Section~\ref{sec:c1} reports the level of
 worst-group coverage rather than which group attains it.
 
-\begin{table}[htbp]
+\begin{table}[H]
 \caption{Where the worst group lands, and how large that group is. For the ERM
 baseline under one shared threshold: which group attains the minimum, the share of the calibration
 set it holds, and how often the minimum lands there. The share is the column that matters: $2.5\%$ on Waterbirds
@@ -1267,7 +1268,7 @@ under ResNet-50 and CLIP, $g_0$ under the two ViTs---while $g_2$, a nominal mino
 \emph{best}-covered group in every one, reaching $0.953$. On CelebA the composited group prior and
 the coverage ordering run opposite ways.
 
-\begin{table}[htbp]
+\begin{table}[H]
 \caption{Coverage of each of the four groups under both calibration rules (APS,
 $\rhocal=\rhotest=0.95$), averaged over the kept training methods, their seeds and the ten
 calibration splits. ``mean'' is the unweighted mean over the four groups, the level group-conditional
@@ -1349,7 +1350,7 @@ Table~\ref{tab:subtarget} repeats the
 exercise with no model, no data and no representation: four groups, i.i.d.\ continuous scores, exact exchangeability, per-group
 conformal thresholds, and only the realised per-group calibration counts varied.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figures/subtarget_law_vs_observed}
 \caption{The sub-target level is a property of the statistic, not
@@ -1362,7 +1363,7 @@ counts. What matters here is where the two sit, not how wide they are.}
 \label{fig:subtarget}
 \end{figure}
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Worst-group coverage of an \emph{exactly valid} Mondrian procedure under pure
 exchangeability, by calibration-pool size at $\rhocal=0.95$ (groups ordered $2y+a$;
@@ -1412,7 +1413,7 @@ target, which Appendix~\ref{app:subtarget} explains it does not.
 
 The C1 criterion referred to in Appendix~\ref{app:excl} was fixed with these hypotheses: \emph{Mondrian within $0.02$ of target for every kept training method, and marginal split significantly below target for every one of them.}
 
-\begin{table}[htbp]
+\begin{table}[H]
 \caption{What the six pre-specified hypotheses returned. Two came back split, and we report the
 clause that failed alongside the one that held rather than scoring each hypothesis as a whole.}
 \label{tab:hypverdict}
@@ -1507,7 +1508,7 @@ Table~\ref{tab:dagger} gives the two excluded ERM settings in full: these are th
 values carried with a dagger in Tables~\ref{tab:c1} and~\ref{tab:h1}, reported so that
 the reader can see what the excluded baseline would have contributed.
 
-\begin{table}[htbp]
+\begin{table}[H]
 \caption{The two settings whose ERM baseline falls below its accuracy floor, and is
 therefore excluded from every spread in the main text. Worst-group coverage under both
 calibration rules (APS, $\rhocal=0.95$), the worst-group accuracy that triggers the
@@ -1611,7 +1612,7 @@ reachable from a finite pool, and both draws are truncated to a common size
 $n=\min(|\mathrm{cal}|,|\mathrm{test}|)$ so calibration and test sizes never differ
 across $\rho$. The realised $\rho$ is logged per draw. Randomised scores (APS, RAPS)
 take their tie-breaking uniforms from separate seeded streams for calibration and test.
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Cached split sizes (sample-level) and structure. Both datasets are binary
 with four spurious groups; the evaluation distribution is re-composited to a target

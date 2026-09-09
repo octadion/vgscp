@@ -129,7 +129,7 @@ for ds in DS:
         sp_rows.append(" & ".join([NAME[bb]] + cells) + r" \\")
 
 summary_block = "\n".join(
-    [r"\begin{table}[htbp]", r"\centering",
+    [r"\begin{table}[H]", r"\centering",
      r"\caption{The dissociation across all three conformity scores "
      r"($\rhocal=\rhotest=0.95$): the spread in worst-group coverage across the kept training "
      r"methods, under one shared threshold and under per-group thresholds. Per-group spreads run "
@@ -147,7 +147,7 @@ new_blocks.insert(0, summary_block)
 
 # ---- splice the new blocks in place of the old three
 old = io.open(OUT, encoding="utf-8", newline="").read()
-tail_start = old.index(r"\begin{table}[htbp]", old.index("tab:gridTHR"))
+tail_start = old.index(r"\begin{table}[H]", old.index("tab:gridTHR"))
 tail = old[tail_start:]
 io.open(OUT, "w", encoding="utf-8", newline="").write("\n".join(new_blocks) + "\n" + tail)
 
