@@ -7,11 +7,16 @@
 \usepackage{booktabs}%
 \usepackage{longtable}%
 \usepackage{array}% >{...} column modifiers in the verdict table
-\usepackage[section]{placeins}% keep a section's floats from drifting into the next one
-% Float placement. The class defaults assume a document with few floats; with 22 tables they force
-% large ones onto pages of their own and leave the surrounding page half empty. These are the usual
-% values for a table-heavy paper: a page may be mostly float, a float may be most of a page, and
-% LaTeX tries harder before deferring.
+% placeins is loaded for \FloatBarrier but WITHOUT [section]. That option inserts a barrier before
+% every one of the nineteen sections, and a barrier flushes pending floats -- one that cannot fit
+% then takes a page of its own, which is the same mechanism that made five explicit barriers
+% expensive. The appendix floats are [!ht] and place where written, so the protection is no longer
+% worth nineteen flush points. If a table ever drifts past its appendix, add one barrier there.
+\usepackage{placeins}%
+% Float placement. The class defaults assume a document with few floats; with eighteen tables they
+% force large ones onto pages of their own and leave the surrounding page half empty. These are the
+% usual values for a table-heavy paper: a page may be mostly float, a float may be most of a page,
+% and LaTeX tries harder before deferring.
 \renewcommand{\topfraction}{0.9}
 \renewcommand{\bottomfraction}{0.8}
 \renewcommand{\textfraction}{0.07}
@@ -263,9 +268,7 @@ D_{\mathrm{KS}} &= \sup_t\big|F_{\wg}(t)-F_{\neg\wg}(t)\big| \quad\text{(Kolmogo
 \end{equation}
 computed per score on a held-out split, and reported per score because the scales differ.
 
-\paragraph{What is true by construction, and what is not.} One elementary fact
-separates what group-conditional calibration gives for free from the question we
-test.
+\paragraph{What is true by construction, and what is not.}
 
 \begin{proposition}[Calibration--representation dissociation]
 \label{prop:dissociation}
@@ -759,9 +762,7 @@ per-seed accuracy support---circled.}
 
 \begin{table}[t]
 \centering
-\caption{The accuracy confound (APS, $\rhocal=0.95$). The raw
-cross-group divergence $D$ falls from ERM to the robust methods, but base accuracy moves
-with it. The $D$ and accuracy columns give ranges of method means, while the last
+\caption{The accuracy confound (APS, $\rhocal=0.95$). The $D$ and accuracy columns give ranges of method means, while the last
 column is assessed per training seed at model level---so what appears to touch here need not
 overlap there, and what appears not to reach ERM may still bracket it (Section~\ref{sec:h1}). It
 names the methods whose support does overlap ERM's; \texttt{unm.}\ = none does, so $\Delta(a^\star)$ is undefined. $^{\dagger}$ERM
@@ -882,14 +883,15 @@ mixture, not the distribution within a group.}
 \paragraph{Coverage and Group Auditing Coexist}
 \label{sec:audit}
 
-The representation on which worst-group coverage is obtained does not hide the protected group. A standardized probe recovers the spurious attribute at
+The representation on which worst-group coverage is obtained does not hide the protected group. A
+standardized probe recovers the spurious attribute at
 $\auroc\in[0.945,0.999]$ across all eight settings while Mondrian simultaneously
 delivers worst-group coverage of $0.83$--$0.89$ across every kept method and score:
 coverage and post-hoc group auditing coexist. Projecting out the top-$k$ spurious-predictive directions
 ($k\in\{0,1,5,20\}$) leaves coverage flat on ResNet-50 and raises it by at most
 $0.02$---still sub-target---as the probe falls toward chance. Forcing invariance does
-not unlock coverage; group-conditional calibration already delivers it from a fully
-recoverable representation.
+not unlock coverage; group-conditional calibration already delivers it from a representation that
+stays fully recoverable.
 
 \paragraph{Calibrating with Predicted Groups}
 \label{sec:predgroup}
@@ -938,7 +940,7 @@ $\rhocal{=}\rhotest{=}0.95$): the cost of replacing ground-truth groups with
 probe-predicted ones at both calibration and test. ``gap'' is
 $|\cov(a)-\cov(c)|$ over the setting's kept methods; ``deploy.'' counts those within
 $0.02$; the last column names the method responsible for the maximum where a setting has any
-failure. Per-method values for all three conditions and all three scores are in the
+failure. Table~\ref{tab:pgfull} gives all three conditions for APS and THR; per-method values are in the
 released results.}
 \label{tab:predgroup}
 \footnotesize
@@ -1467,10 +1469,10 @@ values carried with a dagger in Tables~\ref{tab:c1} and~\ref{tab:h1}, reported s
 the reader can see what the excluded baseline would have contributed.
 
 \begin{table}[!ht]
-\caption{The two settings whose ERM baseline falls below its accuracy floor, and is
-therefore excluded from every spread in the main text. Worst-group coverage under both
-calibration rules (APS, $\rhocal=0.95$), the worst-group accuracy that triggers the
-exclusion, and the floor it misses. These are the daggered values of Table~\ref{tab:c1}. Table~\ref{tab:h1}'s daggered rows
+\caption{The daggered values of Table~\ref{tab:c1}: the two settings whose ERM baseline falls
+below its accuracy floor and is excluded from every spread in the main text. Worst-group coverage
+under both calibration rules (APS, $\rhocal=0.95$), the worst-group accuracy that triggers the
+exclusion, and the floor it misses. Table~\ref{tab:h1}'s daggered rows
 print dashes for a different reason---no ERM reference model exists there, so its $D$ and base
 accuracy are undefined rather than merely excluded.}
 \label{tab:dagger}
@@ -1565,8 +1567,8 @@ with four spurious groups; the evaluation distribution is re-composited to a tar
 correlation strength $\rho$. The ``cal $=$ test'' and ``per group'' columns give the halves
 at the headline $\rho=0.95$: they are equal in size by the truncation described above,
 and each splits across groups $2y+a=0,1,2,3$ in the proportions
-$0.475/0.025/0.025/0.475$ that $\rho$ fixes. ``Distinct images'' is what those counts are drawn from: the draw is with replacement, so a
-group's nominal count can exceed the images available to it.}
+$0.475/0.025/0.025/0.475$ that $\rho$ fixes. ``Distinct images'' is what those counts are drawn
+from; the draw is with replacement.}
 \label{tab:data}
 \small
 \setlength{\tabcolsep}{4pt}

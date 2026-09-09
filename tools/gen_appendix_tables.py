@@ -190,7 +190,7 @@ for ds in DS:
 foot()
 
 # ───────────────────────────────────────────────────────── G6 variance decomposition
-head(r"Where the variance sits, and how the two rules compare on it. For each setting, the standard deviation of worst-group "
+head(r"For each setting, the standard deviation of worst-group "
      r"coverage across training seeds and across calibration splits (APS, per-group "
      r"thresholds for the first two columns, $\rhocal=\rhotest=0.95$), averaged over the "
      r"kept training methods; the last column repeats the split-to-split figure under one "
