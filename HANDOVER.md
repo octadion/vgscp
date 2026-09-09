@@ -15,7 +15,7 @@ The science is finished and checked. What is left is length and voice.
 
 | | now | target |
 |---|---|---|
-| pages | 43 (last compile, before the float fix) | **~30** |
+| pages | **42** (measured after the float fix) | **~30** |
 | body | 8,164 words | ~6,500 |
 | appendix | 5,151 words | ~3,500 |
 | captions | 1,508 words | ~1,000 |
@@ -71,12 +71,11 @@ Not yet recompiled, so the saving is unverified:
   this.
 - **Float parameters loosened** (`\topfraction` 0.9, `\textfraction` 0.07, `\floatpagefraction`
   0.75, `totalnumber` 5). The class defaults assume few floats; with 22 tables they exile large ones
-  to float-only pages. This is typesetting, not content — expect 3–5 pages back for nothing.
+  to float-only pages. **Measured afterwards: this bought one page, not the 3–5 hoped for.** Loosening lets LaTeX fit more per page but it still defers a float it cannot place. In an appendix that is mostly tables the real fix is to stop them floating at all — `\usepackage{float}` with `[H]`. Try that first; it costs nothing.
 - **`placeins[section]` kept.** Keeping an appendix's tables inside their own appendix is worth
   enforcing; keeping a table inside its subsection is not.
 
-**Compile first.** Decide what to cut against the real page count, not the one inflated by white
-space.
+**Measured: 42 pages.** The body ends around page 22, so the appendix is roughly 20 pages — 15 tables and 5,151 words. Nearly all of the remaining twelve pages have to come from there.
 
 ---
 
