@@ -798,7 +798,7 @@ ViT-B/16$^{\dagger}$ & --- & --- & 0.022--0.033 & 0.833--0.893 & \texttt{no ref.
 \centering
 \caption{The accuracy-best and shortfall-best method per setting, from the five-seed main
 grid rather than the three-seed calibration comparison of Appendix~\ref{app:supp}, so these values
-are not expected to reproduce from Table~\ref{tab:gridAPS}. APS, $\rhocal=0.95$, with $\covgap$
+are not expected to reproduce from that appendix's tables. APS, $\rhocal=0.95$, with $\covgap$
 measured under \emph{one shared threshold} and given with its cluster-bootstrap CI. An
 inversion counts as \textbf{real} only when a paired bootstrap of the difference
 excludes zero; a parenthesised value is a point estimate whose interval includes zero.}
@@ -993,7 +993,7 @@ equalizing coverage produces the \emph{largest} disparity in outcomes of any rul
 test, precisely because it widens the gap in set sizes; they recommend equalizing set
 sizes instead. Our data reproduces their mechanism. Moving from a shared threshold to
 per-group thresholds raises the set-size disparity in all eight settings, from
-$0.080$--$0.339$ to $0.168$--$0.608$ (Table~\ref{tab:disparity}), and Figure~\ref{fig:overview}(d) prices it for a
+$0.080$--$0.339$ to $0.168$--$0.608$ (Table~\ref{tab:pergroupcov}), and Figure~\ref{fig:overview}(d) prices it for a
 single setting: the worst group's sets grow from $1.080$ to $1.319$ while the average
 barely moves. Both results stand, and what separates them is which quantity carries the
 guarantee. Where coverage is the thing being promised---an audit, a service-level
@@ -1191,54 +1191,47 @@ $D_{\mathrm{KS}}$ wherever a bound or a prediction is claimed.
 \section{Full Results}
 \label{app:supp}
 
-This appendix holds the per-(setting, method, score) numbers behind every claim in
-Section~\ref{sec:results}. The tables are generated directly from the released records
-by the script that ships with the code.
+This appendix gives the numbers behind the claims of Section~\ref{sec:results} at the grain those
+claims are made. The per-(setting, method) cells they aggregate are in the released records, from
+which these tables are generated.
 
-\paragraph{The calibration comparison in full.}
+\paragraph{The calibration comparison.}
 Table~\ref{tab:scorespread} states the dissociation for all three conformity scores at
 once: the across-method spread in worst-group coverage runs $0.001$--$0.029$ under per-group
 thresholds against $0.002$--$0.478$ under a shared one, and is the smaller of the two in $22$ of
 the $24$ pairs. Both exceptions are ViT-B/16 on CelebA, where the shared threshold already leaves
-almost nothing to recover. Tables~\ref{tab:gridAPS} and~\ref{tab:gridTHR} then give worst-group
-coverage and set size for every training method under all three calibration rules, for the headline
-score and for the one where the behaviour is least regular; the full RAPS cells are in the released
-records. Table~\ref{tab:disparity} adds the mean over groups and the set-size disparity, the two
-quantities the Discussion prices against each other. The third rule, shift-robust calibration, inflates its threshold with the observed
+almost nothing to recover.
+
+The third rule, shift-robust calibration, inflates its threshold with the observed
 calibration-to-test distance. For most robust methods that lifts worst-group coverage above target, though not for
 all: the robust cells span $0.84$--$0.97$ and four of the twenty-eight sit below $0.90$, all on
 Waterbirds (GroupDRO-LL at $0.844$, $0.865$ and $0.865$, balanced subsampling at $0.888$). Nor
 does the rule rescue a badly miscalibrated baseline: ERM stays far below target on three Waterbirds
 settings ($0.653$, $0.777$ and $0.798$), so the range over all kept runs is $0.65$--$0.97$. Under APS and RAPS it is the right choice when $\rhotest$ is
 expected to move far from $\rhocal$, and like per-group thresholds it makes worst-group coverage
-much less dependent on training.
+much less dependent on training. Under THR on CelebA it degenerates instead: twelve of the
+thirty-four (setting, method) cells reach a mean worst-group set size above $1.9$ and seven sit at
+$2.000$, which with two classes is the set holding both labels and covers by construction. The
+coverage of $1.000$ there is the trivial predictor rather than a well-calibrated one, which is why
+we scope the shift-robust recommendation to APS and RAPS and read its THR behaviour on CelebA as a
+failure mode rather than a result.
 
-One reading of Table~\ref{tab:gridTHR} has to be ruled out. Under THR on CelebA the shift-robust
-rule reaches a worst-group coverage of $1.000$ at a mean worst-group set size of $2.000$: with two
-classes that is the set containing both of them, which covers by construction. Twelve of the
-thirty-four (setting, method) cells in that column exceed a mean size of $1.9$ and seven sit at the
-$2.000$ ceiling. The apparent perfect coverage there is the trivial predictor rather than a
-well-calibrated one, and we report those cells unclipped for the same reason we report the
-sub-unit sizes on DINOv2/Waterbirds: rounding either degeneracy away would hide the rule's actual
-behaviour. It is why we scope the shift-robust recommendation to APS and RAPS, and read its THR
-column on CelebA as a failure mode rather than a result.
+\paragraph{Divergences.} Table~\ref{tab:div} reports $D_{\mathrm{KS}}$, the quantity that appears
+in Eq.~\eqref{eq:ksbound} and is plotted in Figure~\ref{fig:mech}, and alongside it $\Wone$ for the
+headline score, which \citet{burden2026} use as their summary but which enters no bound here.
 
-\paragraph{Divergences.} Table~\ref{tab:div} reports $D_{\mathrm{KS}}$ and $\Wone$ per
-setting and score. $D_{\mathrm{KS}}$ is the quantity that appears in
-Eq.~\eqref{eq:ksbound} and is plotted in Figure~\ref{fig:mech}; $\Wone$ is included
-because it is the summary used by \citet{burden2026}, but it enters no bound here.
+\paragraph{The correlation-strength sweep.} Worst-group coverage barely moves with $\rhotest$ under
+either rule: across the whole sweep no setting departs from its $\rhotest=0.95$ value by more than
+$0.019$, and that worst case is Waterbirds/ResNet-50 under a shared threshold, already far below
+target at $\rhocal$. Figure~\ref{fig:shift} plots it. Set-size disparity eases or stays flat across
+the sweep in every setting except DFR and GroupDRO-LL on CelebA/ResNet-50.
 
-\paragraph{The correlation-strength sweep.} Table~\ref{tab:sweep} gives worst-group
-coverage at each $\rhotest$ under both rules, the numbers behind Figure~\ref{fig:shift}.
-Set-size disparity eases or stays flat across the sweep in every setting except DFR and
-GroupDRO-LL on CelebA/ResNet-50.
+\paragraph{The fine-tuning study.} Table~\ref{tab:reprfull} reports the across-seed standard
+deviation that Table~\ref{tab:repr} averages away, and adds THR, whose shared-threshold coverage on
+Waterbirds falls a further $0.11$--$0.25$ below APS while its per-group coverage is unchanged.
 
-\paragraph{The fine-tuning study.} Table~\ref{tab:reprfull} expands
-Section~\ref{sec:repr} to all three scores and reports the across-seed standard
-deviation, which Table~\ref{tab:repr} averages away.
-
-\paragraph{Predicted groups.} Table~\ref{tab:pgfull} gives all three conditions for all
-three scores. APS and RAPS behave alike; THR is the least stable, since small changes in
+\paragraph{Predicted groups.} Table~\ref{tab:pgfull} gives all three conditions. APS and RAPS
+behave alike; THR is the least stable, since small changes in
 the top-$1$ softmax mass matter more when a stratum is mis-assigned, which is why the
 claim in Section~\ref{sec:predgroup} is scoped to APS and RAPS. The four runs that miss
 the $0.02$ bar are ERM on CLIP/Waterbirds ($0.051$) and DINOv2/Waterbirds ($0.024$), AFR
@@ -1274,34 +1267,36 @@ $\rhocal=\rhotest=0.95$), averaged over the kept training methods, their seeds a
 calibration splits. ``mean'' is the unweighted mean over the four groups, the level group-conditional
 calibration targets; ``min'' is the worst-group figure the rest of the paper reports. Groups are
 ordered $2y+a$, so $g_0$ and $g_3$ are the label-attribute-aligned ones that compositing makes
-large.}
+large. The last column is the set-size disparity on the same runs---the spread in mean set size
+across the four groups---which the Discussion prices against the coverage the per-group rule
+gains.}
 \label{tab:pergroupcov}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}llcccccc@{}}
+\begin{tabular}{@{}llccccccc@{}}
 \toprule
- & & \multicolumn{4}{c}{coverage by group} & & \\
+ & & \multicolumn{4}{c}{coverage by group} & & & \\
 \cmidrule(lr){3-6}
-Setting & rule & $g_0$ & $g_1$ & $g_2$ & $g_3$ & mean & min \\
+Setting & rule & $g_0$ & $g_1$ & $g_2$ & $g_3$ & mean & min & disparity \\
 \midrule
-\multicolumn{8}{@{}l}{\emph{Waterbirds}} \\
-ResNet-50 & shared & 0.931 & 0.848 & 0.735 & 0.873 & 0.847 & 0.729 \\
- & per-group & 0.901 & 0.911 & 0.914 & 0.893 & 0.905 & 0.870 \\
-CLIP & shared & 0.923 & 0.857 & 0.755 & 0.874 & 0.852 & 0.745 \\
- & per-group & 0.903 & 0.917 & 0.898 & 0.886 & 0.901 & 0.856 \\
-DINOv2 & shared & 0.908 & 0.896 & 0.866 & 0.885 & 0.889 & 0.850 \\
- & per-group & 0.899 & 0.916 & 0.916 & 0.890 & 0.905 & 0.869 \\
-ViT-B/16 & shared & 0.916 & 0.869 & 0.807 & 0.883 & 0.869 & 0.792 \\
- & per-group & 0.900 & 0.915 & 0.914 & 0.893 & 0.906 & 0.869 \\
-\multicolumn{8}{@{}l}{\emph{CelebA}} \\
-ResNet-50 & shared & 0.925 & 0.944 & 0.953 & 0.877 & 0.925 & 0.865 \\
- & per-group & 0.898 & 0.901 & 0.900 & 0.903 & 0.900 & 0.879 \\
-CLIP & shared & 0.907 & 0.920 & 0.933 & 0.894 & 0.913 & 0.866 \\
- & per-group & 0.898 & 0.907 & 0.898 & 0.906 & 0.902 & 0.884 \\
-DINOv2 & shared & 0.888 & 0.893 & 0.934 & 0.916 & 0.908 & 0.881 \\
- & per-group & 0.897 & 0.895 & 0.901 & 0.908 & 0.900 & 0.878 \\
-ViT-B/16 & shared & 0.884 & 0.905 & 0.924 & 0.913 & 0.906 & 0.881 \\
- & per-group & 0.899 & 0.900 & 0.900 & 0.899 & 0.900 & 0.877 \\
+\multicolumn{9}{@{}l}{\emph{Waterbirds}} \\
+ResNet-50 & shared & 0.931 & 0.848 & 0.735 & 0.873 & 0.847 & 0.729 & 0.132 \\
+ & per-group & 0.901 & 0.911 & 0.914 & 0.893 & 0.905 & 0.870 & 0.608 \\
+CLIP & shared & 0.923 & 0.857 & 0.755 & 0.874 & 0.852 & 0.745 & 0.173 \\
+ & per-group & 0.903 & 0.917 & 0.898 & 0.886 & 0.901 & 0.856 & 0.521 \\
+DINOv2 & shared & 0.908 & 0.896 & 0.866 & 0.885 & 0.889 & 0.850 & 0.080 \\
+ & per-group & 0.899 & 0.916 & 0.916 & 0.890 & 0.905 & 0.869 & 0.200 \\
+ViT-B/16 & shared & 0.916 & 0.869 & 0.807 & 0.883 & 0.869 & 0.792 & 0.140 \\
+ & per-group & 0.900 & 0.915 & 0.914 & 0.893 & 0.906 & 0.869 & 0.449 \\
+\multicolumn{9}{@{}l}{\emph{CelebA}} \\
+ResNet-50 & shared & 0.925 & 0.944 & 0.953 & 0.877 & 0.925 & 0.865 & 0.339 \\
+ & per-group & 0.898 & 0.901 & 0.900 & 0.903 & 0.900 & 0.879 & 0.505 \\
+CLIP & shared & 0.907 & 0.920 & 0.933 & 0.894 & 0.913 & 0.866 & 0.239 \\
+ & per-group & 0.898 & 0.907 & 0.898 & 0.906 & 0.902 & 0.884 & 0.313 \\
+DINOv2 & shared & 0.888 & 0.893 & 0.934 & 0.916 & 0.908 & 0.881 & 0.152 \\
+ & per-group & 0.897 & 0.895 & 0.901 & 0.908 & 0.900 & 0.878 & 0.198 \\
+ViT-B/16 & shared & 0.884 & 0.905 & 0.924 & 0.913 & 0.906 & 0.881 & 0.163 \\
+ & per-group & 0.899 & 0.900 & 0.900 & 0.899 & 0.900 & 0.877 & 0.168 \\
 \botrule
 \end{tabular}
 \end{table}

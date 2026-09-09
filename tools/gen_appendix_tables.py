@@ -4,14 +4,17 @@ The appendix currently describes results and points at files. Reviewers do not o
 results are effectively absent. Everything below already exists in the 116,000 evaluations; this
 puts it on the page.
 
-Six tables, written to a file the manuscript inputs:
+Four tables, written to a file the manuscript inputs:
 
-  G1  the full calibration comparison: every setting x method x policy, for each conformity score
-  G2  cross-group divergences, D_KS and W1, per setting and score
-  G3  the correlation-strength sweep: worst-group coverage at each rho_test under both rules
-  G4  the fine-tuning study in full, with across-seed spread
-  G5  predicted groups: all three conditions, all three scores
+  G2  cross-group divergences per setting: D_KS for each score, W1 for the headline score
+  G4  the fine-tuning study, with across-seed spread
+  G5  predicted groups: all three conditions, for the headline score and for THR
   G6  variance decomposition: across-seed against across-split standard deviation
+
+The per-(setting, method) grids are no longer printed. The claim they carried is the across-method
+spread under each calibration rule, and the summary table that fix_grid_tables.py prepends states
+that spread for all three scores at once. Every cell behind it is in the released records, which is
+also where the RAPS columns of the tables below live.
 
 One table the audit asked for cannot be built: per-group coverage for all four groups. The records
 store the mean over groups, the worst group's coverage and the range, but not each group's
@@ -35,6 +38,9 @@ PNAME = {"marginal_split": "shared", "mondrian": "per-group", "shift_robust": "s
 BB = ["resnet50_erm", "clip_vitb32", "dinov2_vitb14", "vit_b16_in1k"]
 DS = ["waterbirds", "celeba"]
 SC = ["APS", "RAPS", "THR"]
+# The score-by-score tables print the headline score and the one whose behaviour is least regular.
+# RAPS sits on top of APS wherever both are computed, so a RAPS row is a repeated row.
+SC_SHOWN = ["APS", "THR"]
 MS = ["erm", "dfr", "afr", "balanced_subsample", "groupdro_ll"]
 
 abl = list(csv.DictReader(open(f"{R}/calibration_ablation_4bb.csv")))
@@ -69,84 +75,54 @@ def foot():
     out.append(r"\end{table}" "\n")
 
 
-# ───────────────────────────────────────────────────────── G1 full calibration comparison
-for sc in SC:
-    head(f"Calibration comparison, {sc} at $\\rhocal=\\rhotest=0.95$. Worst-group coverage, "
-         f"mean over groups, mean set size, worst-group set size and set-size disparity, "
-         f"for every training method under each calibration rule. Excluded runs are omitted.",
-         f"tab:grid{sc}", "llccccc",
-         ["Setting", "Method", "rule", "wg cov", "mean cov", "wg size", "disparity"])
-    for ds in DS:
-        out.append(r"\multicolumn{7}{l}{\emph{" + ("Waterbirds" if ds == "waterbirds"
-                                                   else "CelebA") + r"}} \\")
-        for bb in BB:
-            for m in MS:
-                sel = [r for r in abl if r["backbone"] == bb and r["dataset"] == ds
-                       and r["method"] == m and r["score"] == sc
-                       and r["rho_test"] == "0.95" and r["gate_status"] != "excluded"]
-                if not sel:
-                    continue
-                first = True
-                for pol in ("marginal_split", "mondrian", "shift_robust"):
-                    p = [r for r in sel if r["calibration"] == pol]
-                    if not p:
-                        continue
-                    out.append(" & ".join([
-                        NAME[bb] if first else "", MNAME[m] if first else "", PNAME[pol],
-                        f(w(p, "worst_group_cov")), f(w(p, "mean_group_cov")),
-                        f(w(p, "worst_group_set_size")), f(w(p, "set_size_disparity"))]) + r" \\")
-                    first = False
-    foot()
-
 # ───────────────────────────────────────────────────────── G2 divergences
+# W1 is given for the headline score only. Appendix A shows it carries no bound, so it is here to
+# be comparable with the summary Burden et al. report and not because three columns of it are read.
 head(r"Cross-group conformity-score divergences under one shared threshold "
      r"($\rhocal=\rhotest=0.95$), averaged over the kept training methods. "
-     r"$D_{\mathrm{KS}}$ is the quantity bounded in Eq.~\eqref{eq:ksbound}; $\Wone$ is "
-     r"reported as a descriptive summary and enters no bound.",
-     "tab:div", "l" + "cc" * 3,
-     ["Setting"] + [c for sc in SC for c in
-                    (f"$D_{{\\mathrm{{KS}}}}$ {sc}", f"$\\Wone$ {sc}")])
+     r"$D_{\mathrm{KS}}$ is the quantity bounded in Eq.~\eqref{eq:ksbound}; $\Wone$, given for "
+     r"APS alone, is a descriptive summary and enters no bound.",
+     "tab:div", "l" + "c" * 4,
+     ["Setting"] + [f"$D_{{\\mathrm{{KS}}}}$ {sc}" for sc in SC] + [r"$\Wone$ APS"])
 for ds in DS:
-    out.append(r"\multicolumn{7}{l}{\emph{" + ("Waterbirds" if ds == "waterbirds"
+    out.append(r"\multicolumn{5}{l}{\emph{" + ("Waterbirds" if ds == "waterbirds"
                                                else "CelebA") + r"}} \\")
     for bb in BB:
-        cells = []
+        cells, w1 = [], float("nan")
         for sc in SC:
             sel = [r for r in abl if r["backbone"] == bb and r["dataset"] == ds
                    and r["score"] == sc and r["rho_test"] == "0.95"
                    and r["calibration"] == "marginal_split" and r["gate_status"] != "excluded"]
-            cells += [f(w(sel, "div_ks_stat")), f(w(sel, "div_wasserstein1"))]
-        out.append(" & ".join([NAME[bb]] + cells) + r" \\")
-foot()
-
-# ───────────────────────────────────────────────────────── G3 rho sweep
-RHOS = ["0.95", "0.9", "0.8", "0.7", "0.6", "0.5"]
-head(r"Worst-group coverage across the correlation-strength sweep (APS, calibration held "
-     r"at $\rhocal=0.95$), averaged over the kept training methods. Each pair of rows is one "
-     r"setting under the two calibration rules.",
-     "tab:sweep", "ll" + "c" * len(RHOS),
-     ["Setting", "rule"] + [f"$\\rhotest={r}$" for r in RHOS])
-for ds in DS:
-    out.append(r"\multicolumn{8}{l}{\emph{" + ("Waterbirds" if ds == "waterbirds"
-                                               else "CelebA") + r"}} \\")
-    for bb in BB:
-        for pol in ("marginal_split", "mondrian"):
-            cells = []
-            for rt in RHOS:
-                sel = [r for r in abl if r["backbone"] == bb and r["dataset"] == ds
-                       and r["score"] == "APS" and r["rho_test"] == rt
-                       and r["calibration"] == pol and r["gate_status"] != "excluded"]
-                cells.append(f(w(sel, "worst_group_cov")))
-            out.append(" & ".join([NAME[bb] if pol == "marginal_split" else "",
-                                   PNAME[pol]] + cells) + r" \\")
+            cells.append(f(w(sel, "div_ks_stat")))
+            if sc == "APS":
+                w1 = w(sel, "div_wasserstein1")
+        out.append(" & ".join([NAME[bb]] + cells + [f(w1)]) + r" \\")
 foot()
 
 # ───────────────────────────────────────────────────────── G4 fine-tuning in full
-head(r"The fine-tuning study in full: the ResNet-50 retrained end-to-end under three "
-     r"objectives with the head held fixed at plain ERM, for all three conformity scores "
+# The RAPS rows are dropped, so the caption states how far RAPS gets from APS. Computed here
+# rather than typed, because a caption that asserts a bound has to be re-derived when the records
+# are re-read; the constant went stale once already.
+def _ft(ds, rp, sc, pol):
+    sel = [r for r in rep if r["dataset"] == ds and r["representation"] == rp
+           and r["score"] == sc and r["rho_test"] == "0.95" and r["head"] == "erm"
+           and r["calibration"] == pol]
+    return w(sel, "worst_group_cov") if sel else float("nan")
+
+
+# Rounded before differencing, so the bound is what a reader gets from the printed precision
+# rather than 0.001 less than the columns appear to differ by.
+_gaps = [abs(round(_ft(ds, rp, "APS", pol), 3) - round(_ft(ds, rp, "RAPS", pol), 3))
+         for ds in DS for rp in sorted({r["representation"] for r in rep})
+         for pol in ("marginal_split", "mondrian")]
+RAPS_FT_GAP = f"{np.nanmax(_gaps):.3f}"
+
+head(r"The fine-tuning study with its across-seed spread: the ResNet-50 retrained end-to-end "
+     r"under three objectives with the head held fixed at plain ERM "
      r"($\rhocal=\rhotest=0.95$). Values are means over five fine-tuning seeds; the two "
      r"coverage columns carry the across-seed standard deviation in brackets, and worst-group "
-     r"accuracy is a per-objective mean that does not vary with the conformity score.",
+     r"accuracy is a per-objective mean that does not vary with the conformity score. RAPS "
+     r"tracks APS to within $" + RAPS_FT_GAP + r"$ throughout and is in the released records.",
      "tab:reprfull", "ll" + "ccc",
      ["Objective", "Score", "wg acc", "wg cov shared", "wg cov per-group"])
 # The dataset is already a section header inside the table, so a Dataset column would be blank in
@@ -157,7 +133,7 @@ for ds in DS:
     out.append(r"\multicolumn{5}{l}{\emph{" + ("Waterbirds" if ds == "waterbirds"
                                                else "CelebA") + r"}} \\")
     for rp in reps:
-        for sc in SC:
+        for sc in SC_SHOWN:
             # Hold the head at plain ERM, exactly as Table 3 in the body does. Without this
             # the table averages over all three heads and disagrees with the body.
             base = [r for r in rep if r["dataset"] == ds and r["representation"] == rp
@@ -174,22 +150,33 @@ for ds in DS:
                             for s in sorted({r["ft_seed"] for r in p})]
                 cells.append(f"{np.mean(per_seed):.3f}\\,[{np.std(per_seed):.3f}]"
                              if per_seed else "---")
-            out.append(" & ".join([RPNAME.get(rp, rp) if sc == SC[0] else "", sc, f(acc)]
+            out.append(" & ".join([RPNAME.get(rp, rp) if sc == SC_SHOWN[0] else "", sc, f(acc)]
                                   + cells) + r" \\")
 foot()
 
 # ───────────────────────────────────────────────────────── G5 predicted groups in full
 COND = sorted({r["condition"] for r in pg})
-head(r"Predicted-group calibration in full: worst-group coverage under all three "
-     r"conditions and all three scores ($\rhocal=\rhotest=0.95$), averaged over the kept "
-     r"training methods. Coverage is always scored against the true groups.",
+def _pgc(bb, ds, sc, c):
+    sel = [r for r in pg if r["backbone"] == bb and r["dataset"] == ds
+           and r["score"] == sc and r["condition"] == c and r["gate_status"] != "excluded"]
+    return w(sel, "worst_group_cov")
+
+
+RAPS_PG_GAP = "{:.3f}".format(np.nanmax(
+    [abs(round(_pgc(bb, ds, "APS", c), 3) - round(_pgc(bb, ds, "RAPS", c), 3))
+     for bb in BB for ds in DS for c in COND]))
+
+head(r"Predicted-group calibration: worst-group coverage under all three conditions "
+     r"($\rhocal=\rhotest=0.95$), averaged over the kept training methods, for the headline "
+     r"score and for THR. Coverage is always scored against the true groups. RAPS is within "
+     r"$" + RAPS_PG_GAP + r"$ of APS in every cell and is in the released records.",
      "tab:pgfull", "ll" + "c" * (len(COND) * 1) + "c",
      ["Setting", "Score"] + [c.replace("_", " ") for c in COND] + ["probe AUROC"])
 for ds in DS:
     out.append(r"\multicolumn{" + str(2 + len(COND) + 1) + r"}{l}{\emph{"
                + ("Waterbirds" if ds == "waterbirds" else "CelebA") + r"}} \\")
     for bb in BB:
-        for sc in SC:
+        for sc in SC_SHOWN:
             cells = []
             for c in COND:
                 sel = [r for r in pg if r["backbone"] == bb and r["dataset"] == ds
@@ -198,7 +185,7 @@ for ds in DS:
                 cells.append(f(w(sel, "worst_group_cov")))
             au = [r for r in pg if r["backbone"] == bb and r["dataset"] == ds
                   and r["gate_status"] != "excluded"]
-            out.append(" & ".join([NAME[bb] if sc == SC[0] else "", sc] + cells
+            out.append(" & ".join([NAME[bb] if sc == SC_SHOWN[0] else "", sc] + cells
                                   + [f(w(au, "probe_auroc"))]) + r" \\")
 foot()
 
@@ -245,29 +232,19 @@ for ds in DS:
                                f(np.mean(marg_sd), 4) if marg_sd else "---"]) + r" \\")
 foot()
 
-# ───────────────────────────────────────────────────────── G7 mean coverage and disparity
-# The reshaped grid tables carry worst-group coverage and set size only, so these two quantities
-# -- one of which the Discussion quotes -- would otherwise appear in no table.
-head(r"Mean coverage over groups and set-size disparity (APS, $\rhocal=\rhotest=0.95$), "
-     r"averaged over the kept training methods. Disparity is the spread in mean set size "
-     r"across groups; it is the cost the Discussion prices against the coverage gained by "
-     r"giving each group its own threshold.",
-     "tab:disparity", "l" + "cc" * 2,
-     ["Setting", "mean cov (shared)", "mean cov (per-group)",
-      "disparity (shared)", "disparity (per-group)"])
+# Set-size disparity used to have a table of its own, whose two coverage columns repeated the
+# per-group table's mean column exactly. It is now a column of that table; this prints the numbers
+# so they can be checked against what the manuscript carries.
+print("\n   disparity, to be carried by the per-group table:")
 for ds in DS:
-    out.append(r"\multicolumn{5}{l}{\emph{" + ("Waterbirds" if ds == "waterbirds"
-                                               else "CelebA") + r"}} \\")
     for bb in BB:
         cells = []
-        for col in ("mean_group_cov", "set_size_disparity"):
-            for pol in ("marginal_split", "mondrian"):
-                sel = [r for r in abl if r["backbone"] == bb and r["dataset"] == ds
-                       and r["score"] == "APS" and r["rho_test"] == "0.95"
-                       and r["calibration"] == pol and r["gate_status"] != "excluded"]
-                cells.append(f(w(sel, col)))
-        out.append(" & ".join([NAME[bb]] + cells) + r" \\")
-foot()
+        for pol in ("marginal_split", "mondrian"):
+            sel = [r for r in abl if r["backbone"] == bb and r["dataset"] == ds
+                   and r["score"] == "APS" and r["rho_test"] == "0.95"
+                   and r["calibration"] == pol and r["gate_status"] != "excluded"]
+            cells.append(f"{f(w(sel, 'mean_group_cov'))}/{f(w(sel, 'set_size_disparity'))}")
+        print(f"     {ds:11s} {NAME[bb]:10s} shared {cells[0]}  per-group {cells[1]}")
 
 io.open(OUT, "w", encoding="utf-8", newline="").write("\n".join(out) + "\n")
 n_tab = sum(1 for l in out if l.startswith(r"\begin{table}"))

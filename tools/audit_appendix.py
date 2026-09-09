@@ -75,10 +75,11 @@ def check(label, got, want, where):
 
 
 # ---------------------------------------------------------------- grids
-# read which grids exist rather than assuming three: RAPS is summarised, not tabulated in full
+# Read which grids exist rather than assuming any. The per-method grids are no longer printed --
+# the cross-score spread table below carries their claim and is checked cell by cell -- so an
+# empty list is the expected state, not a failure.
 GRIDS = [sc for sc in ("APS", "RAPS", "THR") if f"tab:grid{sc}" in tex]
-print(f"=== grid: {', '.join(GRIDS)} ===")
-assert GRIDS, "tidak ada tabel grid sama sekali"
+print(f"=== grid: {', '.join(GRIDS) if GRIDS else 'tidak dicetak'} ===")
 for sc in GRIDS:
     blk = table(f"tab:grid{sc}")
     rows, cur_bb = datarows(blk), None
@@ -109,40 +110,71 @@ for ds, c in datarows(table("tab:div")):
         sel = [r for r in abl if r["backbone"] == bb and r["dataset"] == ds
                and r["score"] == sc and r["rho_test"] == "0.95"
                and r["calibration"] == "marginal_split"]
-        check("div", num(c[1 + 2 * k]), mean(sel, "div_ks_stat"), f"{c[0]}/{ds} KS {sc}")
-        check("div", num(c[2 + 2 * k]), mean(sel, "div_wasserstein1"), f"{c[0]}/{ds} W1 {sc}")
+        check("div", num(c[1 + k]), mean(sel, "div_ks_stat"), f"{c[0]}/{ds} KS {sc}")
+        if sc == "APS":
+            # W1 is now given for the headline score alone, in the last column
+            check("div", num(c[4]), mean(sel, "div_wasserstein1"), f"{c[0]}/{ds} W1 APS")
 
-# ---------------------------------------------------------------- sweep
-print("=== tab:sweep ===", end=" ")
-_rows = datarows(table("tab:sweep"))
-print(f"{len(_rows)} baris")
-assert _rows, "TIDAK ADA BARIS TERBACA: tab:sweep"
+# ---------------------------------------------------------------- the sweep, now a prose bound
+# The sweep table is gone; Appendix B states instead that no setting departs from its
+# rho_test=0.95 worst-group coverage by more than a stated amount. That bound is a claim about the
+# records like any table cell, so it is re-derived here.
+print("=== sweep bound ===", end=" ")
 RHOS = ["0.95", "0.9", "0.8", "0.7", "0.6", "0.5"]
-cur = None
-for ds, c in datarows(table("tab:sweep")):
-    if c[0]:
-        cur = c[0]
-    pol = "marginal_split" if "shared" in c[1] else "mondrian"
-    for k, rt in enumerate(RHOS):
-        sel = [r for r in abl if r["backbone"] == NAME[cur] and r["dataset"] == ds
-               and r["score"] == "APS" and r["rho_test"] == rt and r["calibration"] == pol]
-        check("sweep", num(c[2 + k]), mean(sel, "worst_group_cov"), f"{cur}/{ds} {pol} rho={rt}")
+dev = 0.0
+for ds in ("waterbirds", "celeba"):
+    for bb in NAME.values():
+        for pol in ("marginal_split", "mondrian"):
+            vals = []
+            for rt in RHOS:
+                sel = [r for r in abl if r["backbone"] == bb and r["dataset"] == ds
+                       and r["score"] == "APS" and r["rho_test"] == rt
+                       and r["calibration"] == pol]
+                m_ = mean(sel, "worst_group_cov")
+                vals.append(round(m_, 3) if m_ is not None else None)
+            if vals[0] is None:
+                continue
+            dev = max([dev] + [abs(v - vals[0]) for v in vals[1:] if v is not None])
+prose = io.open(f"{D}/sn-article.tex", encoding="utf-8").read()
+stated = float(re.search(r"by more than\s+\$(\d\.\d+)\$",
+                         re.sub(r"\s+", " ", prose)).group(1))
+print(f"tertulis {stated:.3f}, dihitung {dev:.3f}")
+if abs(stated - dev) > 0.0006:
+    bad.append(f"  sweep: batas tertulis {stated:.3f}, dihitung {dev:.3f}")
 
-# ---------------------------------------------------------------- disparity
-print("=== tab:disparity ===", end=" ")
-_rows = datarows(table("tab:disparity"))
-print(f"{len(_rows)} baris")
-assert _rows, "TIDAK ADA BARIS TERBACA: tab:disparity"
-for ds, c in datarows(table("tab:disparity")):
-    bb = NAME[c[0]]
-    for k, (col, pol) in enumerate((("mean_group_cov", "marginal_split"),
-                                    ("mean_group_cov", "mondrian"),
-                                    ("set_size_disparity", "marginal_split"),
-                                    ("set_size_disparity", "mondrian"))):
-        sel = [r for r in abl if r["backbone"] == bb and r["dataset"] == ds
-               and r["score"] == "APS" and r["rho_test"] == "0.95"
-               and r["calibration"] == pol]
-        check("disparity", num(c[1 + k]), mean(sel, col), f"{c[0]}/{ds} {col} {pol}")
+# ---------------------------------------------------------------- per-group coverage + disparity
+# tab:pergroupcov lives in the manuscript rather than the generated file, and it now carries the
+# set-size disparity column that had a table of its own. Both are checked against the records.
+print("=== tab:pergroupcov ===", end=" ")
+_pgc_blk = prose[prose.index(r"\label{tab:pergroupcov}") - 2000:
+                 prose.index(r"\label{tab:pergroupcov}") + 3000]
+_pgc_blk = _pgc_blk[_pgc_blk.index(r"\begin{tabular}"):_pgc_blk.index(r"\end{tabular}")]
+_pgc_rows, _cur = [], None
+for ln in _pgc_blk.split("\\\\"):
+    ln = ln.strip()
+    if r"\emph{Waterbirds}" in ln:
+        _ds = "waterbirds"
+        continue
+    if r"\emph{CelebA}" in ln:
+        _ds = "celeba"
+        continue
+    cells = [x.strip() for x in ln.split("&")]
+    if len(cells) != 9 or not any(re.search(r"\d\.\d", x) for x in cells):
+        continue
+    if cells[0]:
+        _cur = cells[0]
+    _pgc_rows.append((_ds, _cur, cells))
+print(f"{len(_pgc_rows)} baris")
+assert len(_pgc_rows) == 16, f"tab:pergroupcov: {len(_pgc_rows)} baris, harus 16"
+for _ds, _cur, c in _pgc_rows:
+    pol = "marginal_split" if "shared" in c[1] else "mondrian"
+    sel = [r for r in abl if r["backbone"] == NAME[_cur] and r["dataset"] == _ds
+           and r["score"] == "APS" and r["rho_test"] == "0.95"
+           and r["calibration"] == pol]
+    check("pergroupcov", num(c[6]), mean(sel, "mean_group_cov"),
+          f"{_cur}/{_ds} mean {pol}")
+    check("pergroupcov", num(c[8]), mean(sel, "set_size_disparity"),
+          f"{_cur}/{_ds} disparity {pol}")
 
 # ---------------------------------------------------------------- variance
 print("=== tab:variance ===", end=" ")

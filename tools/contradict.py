@@ -73,8 +73,12 @@ n_tab = len(re.findall(r"\\label\{tab:", PAPER)) + len(re.findall(r"\\label\{tab
 app_i = PAPER.index(r"\begin{appendices}")
 n_body = len(re.findall(r"\\label\{tab:", PAPER[:app_i]))
 print(f"  manuskrip: {n_tab} tabel, {n_body} di badan, {n_tab - n_body} di appendiks")
-for f, pat, got in (("response-to-reviewers.tex", r"twenty-two tables", n_tab == 22),
-                    ("before-after.tex", r"& 6 & 22 &", n_tab == 22),
+# The counts are spelled out in the companions, so the pattern is built from the count the
+# manuscript actually has rather than from a number typed here.
+WORD = {18: "eighteen", 19: "nineteen", 20: "twenty", 21: "twenty-one", 22: "twenty-two"}
+for f, pat, got in (("response-to-reviewers.tex",
+                     rf"{WORD.get(n_tab, n_tab)} tables", True),
+                    ("before-after.tex", rf"& 6 & {n_tab} &", True),
                     ("before-after.tex",
                      rf"{n_body} in the body, {n_tab - n_body} in the appendix", True)):
     if not re.search(pat, re.sub(r"\s+", " ", DOCS[f])):
@@ -88,12 +92,23 @@ inp = PAPER.index(r"\input{appendix-tables}")
 full = PAPER[:inp] + DOCS["appendix-tables.tex"] + PAPER[inp:]
 for k, m in enumerate(re.finditer(r"\\label\{tab:([^}]+)\}", full), 1):
     order[m.group(1)] = k
-valid = {f"{chr(64 + 1)}1"} | {f"B{i}" for i in range(2, 12)} | {"C12", "D13", "E14", "F15"}
+# Derive the numbers rather than listing them. The list was hardcoded and went stale the first
+# time an appendix table was removed, which is exactly the failure this check exists to catch:
+# the class numbers an appendix table <section letter><running counter>, with the counter running
+# on across sections rather than resetting.
+valid, letter, counter = set(), 0, 0
+for m in re.finditer(r"\\section\{|\\label\{tab:", full[full.index(r"\begin{appendices}"):]):
+    if m.group(0).startswith(r"\section"):
+        letter += 1
+    else:
+        counter += 1
+        valid.add(f"{chr(64 + letter)}{counter}")
+shown = ", ".join(sorted(valid, key=lambda x: int(x[1:])))
+print(f"  {len(valid)} nomor: {shown}")
 for f in ("response-to-reviewers.tex", "before-after.tex"):
     for m in re.finditer(r"Table~([A-F]\d+)", DOCS[f]):
         if m.group(1) not in valid:
-            bad.append(f"  [{f}] Table~{m.group(1)} bukan label yang ada "
-                       f"(sah: A1, B2--B11, C12, D13, E14, F15)")
+            bad.append(f"  [{f}] Table~{m.group(1)} bukan label yang ada (sah: {shown})")
 
 print()
 if bad:

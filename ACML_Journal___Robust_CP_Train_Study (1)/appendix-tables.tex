@@ -24,179 +24,33 @@ ViT-B/16 & 0.003 & 0.008 & 0.002 & 0.008 & 0.004 & 0.001 \\
 \end{tabular}
 \end{table}
 
-\begingroup\setlength{\tabcolsep}{4pt}
-\begin{longtable}{@{}llcccccc@{}}
-\caption{Calibration comparison, APS at $\rhocal=\rhotest=0.95$: worst-group coverage (cov) and worst-group set size (size) under each of the three calibration rules, for every training method. Means over the kept runs; methods excluded by their accuracy floor are omitted rather than shown.}\label{tab:gridAPS} \\
-\toprule
- & & \multicolumn{2}{c}{shared} & \multicolumn{2}{c}{per-group} & \multicolumn{2}{c}{shift-robust} \\
-\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}
-Setting & Method & cov & size & cov & size & cov & size \\
-\midrule
-\endfirsthead
-\toprule
- & & \multicolumn{2}{c}{shared} & \multicolumn{2}{c}{per-group} & \multicolumn{2}{c}{shift-robust} \\
-\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}
-Setting & Method & cov & size & cov & size & cov & size \\
-\midrule
-\endhead
-\bottomrule
-\endfoot
-\multicolumn{8}{@{}l}{\emph{Waterbirds}} \\*
-\nopagebreak
-ResNet-50 & ERM & 0.564 & 1.070 & 0.870 & 1.138 & 0.798 & 1.512 \\
- & DFR & 0.854 & 1.157 & 0.868 & 1.133 & 0.948 & 1.438 \\
- & AFR & 0.809 & 1.290 & 0.865 & 1.217 & 0.940 & 1.709 \\
- & Bal.\ sub. & 0.711 & 1.135 & 0.873 & 1.159 & 0.888 & 1.564 \\
- & GroupDRO-LL & 0.707 & 1.086 & 0.873 & 1.101 & 0.865 & 1.415 \\
-CLIP & ERM & 0.509 & 1.080 & 0.854 & 1.319 & 0.653 & 1.385 \\
- & DFR & 0.852 & 1.131 & 0.865 & 1.135 & 0.946 & 1.442 \\
- & AFR & 0.807 & 1.325 & 0.857 & 1.300 & 0.926 & 1.721 \\
- & Bal.\ sub. & 0.867 & 1.200 & 0.864 & 1.175 & 0.958 & 1.622 \\
- & GroupDRO-LL & 0.693 & 1.176 & 0.841 & 1.213 & 0.844 & 1.460 \\
-DINOv2 & ERM & 0.818 & 0.992 & 0.881 & 0.927 & 0.909 & 1.165 \\
- & DFR & 0.863 & 0.938 & 0.858 & 0.926 & 0.957 & 1.080 \\
- & AFR & 0.848 & 0.960 & 0.857 & 0.932 & 0.946 & 1.111 \\
- & Bal.\ sub. & 0.867 & 0.937 & 0.878 & 0.945 & 0.952 & 1.103 \\
- & GroupDRO-LL & 0.852 & 0.953 & 0.872 & 0.962 & 0.941 & 1.110 \\
-ViT-B/16 & ERM & 0.647 & 1.077 & 0.865 & 1.452 & 0.777 & 1.429 \\
- & DFR & 0.864 & 1.089 & 0.872 & 1.088 & 0.960 & 1.369 \\
- & AFR & 0.830 & 1.188 & 0.866 & 1.140 & 0.964 & 1.625 \\
- & Bal.\ sub. & 0.864 & 1.115 & 0.871 & 1.090 & 0.965 & 1.426 \\
- & GroupDRO-LL & 0.752 & 1.097 & 0.871 & 1.149 & 0.865 & 1.371 \\
-\multicolumn{8}{@{}l}{\emph{CelebA}} \\*
-\nopagebreak
-ResNet-50 & ERM & 0.821 & 1.795 & 0.881 & 1.378 & 0.902 & 1.893 \\
- & DFR & 0.877 & 1.118 & 0.881 & 1.092 & 0.922 & 1.219 \\
- & Bal.\ sub. & 0.877 & 1.365 & 0.878 & 1.198 & 0.928 & 1.623 \\
- & GroupDRO-LL & 0.892 & 1.204 & 0.878 & 1.091 & 0.939 & 1.263 \\
-CLIP & ERM & 0.822 & 1.778 & 0.886 & 1.163 & 0.921 & 1.908 \\
- & DFR & 0.880 & 1.080 & 0.882 & 1.047 & 0.918 & 1.162 \\
- & Bal.\ sub. & 0.879 & 1.055 & 0.885 & 1.056 & 0.921 & 1.136 \\
- & GroupDRO-LL & 0.882 & 1.033 & 0.884 & 1.041 & 0.921 & 1.101 \\
-DINOv2 & DFR & 0.872 & 1.230 & 0.876 & 1.184 & 0.912 & 1.341 \\
- & Bal.\ sub. & 0.885 & 1.173 & 0.879 & 1.142 & 0.927 & 1.282 \\
- & GroupDRO-LL & 0.885 & 1.098 & 0.878 & 1.089 & 0.927 & 1.189 \\
-ViT-B/16 & DFR & 0.880 & 1.185 & 0.874 & 1.144 & 0.921 & 1.287 \\
- & Bal.\ sub. & 0.883 & 1.163 & 0.874 & 1.123 & 0.929 & 1.253 \\
- & GroupDRO-LL & 0.881 & 1.056 & 0.883 & 1.105 & 0.922 & 1.130 \\
-\end{longtable}\endgroup
-
-\begingroup\setlength{\tabcolsep}{4pt}
-\begin{longtable}{@{}llcccccc@{}}
-\caption{Calibration comparison, THR at $\rhocal=\rhotest=0.95$: worst-group coverage (cov) and worst-group set size (size) under each of the three calibration rules, for every training method. Means over the kept runs; methods excluded by their accuracy floor are omitted rather than shown. Under the shift-robust rule this table contains degenerate cells: seven (setting, method) pairs sit at a mean worst-group set size of $2.000$ with coverage $1.000$, which with two classes is the set holding both labels and covers by construction. See the discussion in this appendix before reading that column as a result.}\label{tab:gridTHR} \\
-\toprule
- & & \multicolumn{2}{c}{shared} & \multicolumn{2}{c}{per-group} & \multicolumn{2}{c}{shift-robust} \\
-\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}
-Setting & Method & cov & size & cov & size & cov & size \\
-\midrule
-\endfirsthead
-\toprule
- & & \multicolumn{2}{c}{shared} & \multicolumn{2}{c}{per-group} & \multicolumn{2}{c}{shift-robust} \\
-\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}
-Setting & Method & cov & size & cov & size & cov & size \\
-\midrule
-\endhead
-\bottomrule
-\endfoot
-\multicolumn{8}{@{}l}{\emph{Waterbirds}} \\*
-\nopagebreak
-ResNet-50 & ERM & 0.386 & 0.695 & 0.869 & 1.082 & 0.506 & 0.926 \\
- & DFR & 0.850 & 1.069 & 0.854 & 1.044 & 0.977 & 1.658 \\
- & AFR & 0.793 & 1.268 & 0.849 & 1.101 & 0.951 & 1.738 \\
- & Bal.\ sub. & 0.607 & 0.886 & 0.867 & 1.129 & 0.808 & 1.344 \\
- & GroupDRO-LL & 0.555 & 0.745 & 0.872 & 1.091 & 0.680 & 1.005 \\
-CLIP & ERM & 0.380 & 0.815 & 0.850 & 1.195 & 0.527 & 1.130 \\
- & DFR & 0.838 & 1.070 & 0.869 & 1.052 & 0.991 & 1.855 \\
- & AFR & 0.795 & 1.306 & 0.863 & 1.313 & 0.958 & 1.848 \\
- & Bal.\ sub. & 0.859 & 1.156 & 0.868 & 1.152 & 0.974 & 1.750 \\
- & GroupDRO-LL & 0.535 & 0.804 & 0.851 & 1.176 & 0.817 & 1.425 \\
-DINOv2 & ERM & 0.503 & 0.523 & 0.879 & 0.938 & 0.592 & 0.633 \\
- & DFR & 0.843 & 0.850 & 0.875 & 0.888 & 0.908 & 0.936 \\
- & AFR & 0.802 & 0.853 & 0.876 & 0.910 & 0.866 & 0.961 \\
- & Bal.\ sub. & 0.819 & 0.841 & 0.882 & 0.911 & 0.898 & 0.937 \\
- & GroupDRO-LL & 0.653 & 0.672 & 0.877 & 0.905 & 0.743 & 0.772 \\
-ViT-B/16 & ERM & 0.450 & 0.698 & 0.868 & 1.349 & 0.620 & 1.020 \\
- & DFR & 0.859 & 0.975 & 0.874 & 0.991 & 0.969 & 1.467 \\
- & AFR & 0.833 & 1.158 & 0.863 & 1.111 & 0.980 & 1.782 \\
- & Bal.\ sub. & 0.853 & 1.040 & 0.866 & 1.014 & 0.972 & 1.511 \\
- & GroupDRO-LL & 0.594 & 0.763 & 0.870 & 1.207 & 0.791 & 1.138 \\
-\multicolumn{8}{@{}l}{\emph{CelebA}} \\*
-\nopagebreak
-ResNet-50 & ERM & 0.810 & 1.799 & 0.885 & 1.292 & 1.000 & 2.000 \\
- & DFR & 0.878 & 1.065 & 0.869 & 1.021 & 0.999 & 1.974 \\
- & Bal.\ sub. & 0.874 & 1.336 & 0.877 & 1.146 & 0.984 & 1.934 \\
- & GroupDRO-LL & 0.881 & 1.142 & 0.876 & 1.023 & 1.000 & 2.000 \\
-CLIP & ERM & 0.811 & 1.775 & 0.879 & 1.202 & 1.000 & 2.000 \\
- & DFR & 0.877 & 0.999 & 0.887 & 0.991 & 0.993 & 1.785 \\
- & Bal.\ sub. & 0.889 & 1.009 & 0.886 & 0.990 & 0.993 & 1.737 \\
- & GroupDRO-LL & 0.898 & 0.975 & 0.884 & 0.950 & 0.999 & 1.907 \\
-DINOv2 & DFR & 0.881 & 1.156 & 0.883 & 1.129 & 1.000 & 2.000 \\
- & Bal.\ sub. & 0.887 & 1.181 & 0.876 & 1.104 & 0.999 & 1.984 \\
- & GroupDRO-LL & 0.894 & 1.106 & 0.878 & 1.017 & 1.000 & 2.000 \\
-ViT-B/16 & DFR & 0.881 & 1.123 & 0.869 & 1.040 & 1.000 & 2.000 \\
- & Bal.\ sub. & 0.881 & 1.113 & 0.868 & 1.048 & 0.998 & 1.917 \\
- & GroupDRO-LL & 0.885 & 1.044 & 0.869 & 0.978 & 1.000 & 2.000 \\
-\end{longtable}\endgroup
-
 \begin{table}[H]
 \centering
-\caption{Cross-group conformity-score divergences under one shared threshold ($\rhocal=\rhotest=0.95$), averaged over the kept training methods. $D_{\mathrm{KS}}$ is the quantity bounded in Eq.~\eqref{eq:ksbound}; $\Wone$ is reported as a descriptive summary and enters no bound.}
+\caption{Cross-group conformity-score divergences under one shared threshold ($\rhocal=\rhotest=0.95$), averaged over the kept training methods. $D_{\mathrm{KS}}$ is the quantity bounded in Eq.~\eqref{eq:ksbound}; $\Wone$, given for APS alone, is a descriptive summary and enters no bound.}
 \label{tab:div}
 \footnotesize
 \setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{lcccccc}
+\begin{tabular}{lcccc}
 \toprule
-Setting & $D_{\mathrm{KS}}$ APS & $\Wone$ APS & $D_{\mathrm{KS}}$ RAPS & $\Wone$ RAPS & $D_{\mathrm{KS}}$ THR & $\Wone$ THR \\
+Setting & $D_{\mathrm{KS}}$ APS & $D_{\mathrm{KS}}$ RAPS & $D_{\mathrm{KS}}$ THR & $\Wone$ APS \\
 \midrule
-\multicolumn{7}{l}{\emph{Waterbirds}} \\
-ResNet-50 & 0.214 & 0.103 & 0.217 & 0.106 & 0.361 & 0.223 \\
-CLIP & 0.201 & 0.098 & 0.204 & 0.101 & 0.321 & 0.203 \\
-DINOv2 & 0.098 & 0.040 & 0.098 & 0.040 & 0.299 & 0.062 \\
-ViT-B/16 & 0.157 & 0.071 & 0.156 & 0.072 & 0.291 & 0.151 \\
-\multicolumn{7}{l}{\emph{CelebA}} \\
-ResNet-50 & 0.130 & 0.070 & 0.133 & 0.072 & 0.533 & 0.208 \\
-CLIP & 0.125 & 0.069 & 0.126 & 0.071 & 0.360 & 0.162 \\
-DINOv2 & 0.054 & 0.026 & 0.055 & 0.026 & 0.245 & 0.063 \\
-ViT-B/16 & 0.050 & 0.026 & 0.050 & 0.027 & 0.279 & 0.063 \\
+\multicolumn{5}{l}{\emph{Waterbirds}} \\
+ResNet-50 & 0.214 & 0.217 & 0.361 & 0.103 \\
+CLIP & 0.201 & 0.204 & 0.321 & 0.098 \\
+DINOv2 & 0.098 & 0.098 & 0.299 & 0.040 \\
+ViT-B/16 & 0.157 & 0.156 & 0.291 & 0.071 \\
+\multicolumn{5}{l}{\emph{CelebA}} \\
+ResNet-50 & 0.130 & 0.133 & 0.533 & 0.070 \\
+CLIP & 0.125 & 0.126 & 0.360 & 0.069 \\
+DINOv2 & 0.054 & 0.055 & 0.245 & 0.026 \\
+ViT-B/16 & 0.050 & 0.050 & 0.279 & 0.026 \\
 \botrule
 \end{tabular}
 \end{table}
 
 \begin{table}[H]
 \centering
-\caption{Worst-group coverage across the correlation-strength sweep (APS, calibration held at $\rhocal=0.95$), averaged over the kept training methods. Each pair of rows is one setting under the two calibration rules.}
-\label{tab:sweep}
-\footnotesize
-\setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{llcccccc}
-\toprule
-Setting & rule & $\rhotest=0.95$ & $\rhotest=0.9$ & $\rhotest=0.8$ & $\rhotest=0.7$ & $\rhotest=0.6$ & $\rhotest=0.5$ \\
-\midrule
-\multicolumn{8}{l}{\emph{Waterbirds}} \\
-ResNet-50 & shared & 0.729 & 0.718 & 0.717 & 0.712 & 0.710 & 0.711 \\
- & per-group & 0.870 & 0.867 & 0.865 & 0.864 & 0.865 & 0.865 \\
-CLIP & shared & 0.746 & 0.753 & 0.756 & 0.757 & 0.756 & 0.758 \\
- & per-group & 0.856 & 0.861 & 0.864 & 0.864 & 0.865 & 0.866 \\
-DINOv2 & shared & 0.850 & 0.849 & 0.854 & 0.853 & 0.854 & 0.853 \\
- & per-group & 0.869 & 0.869 & 0.870 & 0.871 & 0.873 & 0.875 \\
-ViT-B/16 & shared & 0.792 & 0.794 & 0.793 & 0.792 & 0.792 & 0.791 \\
- & per-group & 0.869 & 0.869 & 0.871 & 0.871 & 0.870 & 0.871 \\
-\multicolumn{8}{l}{\emph{CelebA}} \\
-ResNet-50 & shared & 0.865 & 0.865 & 0.865 & 0.865 & 0.865 & 0.864 \\
- & per-group & 0.879 & 0.880 & 0.881 & 0.881 & 0.881 & 0.881 \\
-CLIP & shared & 0.866 & 0.867 & 0.867 & 0.868 & 0.869 & 0.869 \\
- & per-group & 0.884 & 0.884 & 0.883 & 0.885 & 0.885 & 0.886 \\
-DINOv2 & shared & 0.881 & 0.882 & 0.885 & 0.886 & 0.887 & 0.887 \\
- & per-group & 0.878 & 0.878 & 0.882 & 0.882 & 0.882 & 0.884 \\
-ViT-B/16 & shared & 0.881 & 0.882 & 0.883 & 0.883 & 0.884 & 0.883 \\
- & per-group & 0.877 & 0.878 & 0.879 & 0.880 & 0.880 & 0.880 \\
-\botrule
-\end{tabular}
-\end{table}
-
-\begin{table}[H]
-\centering
-\caption{The fine-tuning study in full: the ResNet-50 retrained end-to-end under three objectives with the head held fixed at plain ERM, for all three conformity scores ($\rhocal=\rhotest=0.95$). Values are means over five fine-tuning seeds; the two coverage columns carry the across-seed standard deviation in brackets, and worst-group accuracy is a per-objective mean that does not vary with the conformity score.}
+\caption{The fine-tuning study with its across-seed spread: the ResNet-50 retrained end-to-end under three objectives with the head held fixed at plain ERM ($\rhocal=\rhotest=0.95$). Values are means over five fine-tuning seeds; the two coverage columns carry the across-seed standard deviation in brackets, and worst-group accuracy is a per-objective mean that does not vary with the conformity score. RAPS tracks APS to within $0.005$ throughout and is in the released records.}
 \label{tab:reprfull}
 \footnotesize
 \setlength{\tabcolsep}{3.5pt}
@@ -206,23 +60,17 @@ Objective & Score & wg acc & wg cov shared & wg cov per-group \\
 \midrule
 \multicolumn{5}{l}{\emph{Waterbirds}} \\
 ERM & APS & 0.516 & 0.568\,[0.048] & 0.865\,[0.008] \\
- & RAPS & 0.516 & 0.563\,[0.048] & 0.865\,[0.008] \\
  & THR & 0.516 & 0.410\,[0.055] & 0.865\,[0.002] \\
 GroupDRO & APS & 0.738 & 0.733\,[0.012] & 0.861\,[0.007] \\
- & RAPS & 0.738 & 0.730\,[0.013] & 0.860\,[0.007] \\
  & THR & 0.738 & 0.480\,[0.040] & 0.862\,[0.006] \\
 Reweighting & APS & 0.466 & 0.485\,[0.033] & 0.864\,[0.006] \\
- & RAPS & 0.466 & 0.480\,[0.032] & 0.864\,[0.006] \\
  & THR & 0.466 & 0.371\,[0.026] & 0.862\,[0.008] \\
 \multicolumn{5}{l}{\emph{CelebA}} \\
 ERM & APS & 0.396 & 0.805\,[0.007] & 0.882\,[0.005] \\
- & RAPS & 0.396 & 0.804\,[0.007] & 0.881\,[0.005] \\
  & THR & 0.396 & 0.806\,[0.009] & 0.880\,[0.000] \\
 GroupDRO & APS & 0.470 & 0.824\,[0.002] & 0.881\,[0.002] \\
- & RAPS & 0.470 & 0.821\,[0.002] & 0.882\,[0.001] \\
  & THR & 0.470 & 0.815\,[0.005] & 0.879\,[0.002] \\
 Reweighting & APS & 0.364 & 0.806\,[0.010] & 0.881\,[0.005] \\
- & RAPS & 0.364 & 0.806\,[0.010] & 0.881\,[0.005] \\
  & THR & 0.364 & 0.810\,[0.014] & 0.882\,[0.002] \\
 \botrule
 \end{tabular}
@@ -230,7 +78,7 @@ Reweighting & APS & 0.364 & 0.806\,[0.010] & 0.881\,[0.005] \\
 
 \begin{table}[H]
 \centering
-\caption{Predicted-group calibration in full: worst-group coverage under all three conditions and all three scores ($\rhocal=\rhotest=0.95$), averaged over the kept training methods. Coverage is always scored against the true groups.}
+\caption{Predicted-group calibration: worst-group coverage under all three conditions ($\rhocal=\rhotest=0.95$), averaged over the kept training methods, for the headline score and for THR. Coverage is always scored against the true groups. RAPS is within $0.002$ of APS in every cell and is in the released records.}
 \label{tab:pgfull}
 \footnotesize
 \setlength{\tabcolsep}{3.5pt}
@@ -240,29 +88,21 @@ Setting & Score & a true & b pred test & c pred both & probe AUROC \\
 \midrule
 \multicolumn{6}{l}{\emph{Waterbirds}} \\
 ResNet-50 & APS & 0.870 & 0.866 & 0.870 & 0.945 \\
- & RAPS & 0.870 & 0.866 & 0.871 & 0.945 \\
  & THR & 0.862 & 0.852 & 0.867 & 0.945 \\
 CLIP & APS & 0.856 & 0.855 & 0.845 & 0.976 \\
- & RAPS & 0.856 & 0.855 & 0.845 & 0.976 \\
  & THR & 0.860 & 0.858 & 0.842 & 0.976 \\
 DINOv2 & APS & 0.869 & 0.868 & 0.858 & 0.961 \\
- & RAPS & 0.869 & 0.868 & 0.858 & 0.961 \\
  & THR & 0.878 & 0.867 & 0.865 & 0.961 \\
 ViT-B/16 & APS & 0.869 & 0.864 & 0.873 & 0.964 \\
- & RAPS & 0.869 & 0.863 & 0.873 & 0.964 \\
  & THR & 0.868 & 0.860 & 0.865 & 0.964 \\
 \multicolumn{6}{l}{\emph{CelebA}} \\
 ResNet-50 & APS & 0.879 & 0.861 & 0.877 & 0.962 \\
- & RAPS & 0.879 & 0.859 & 0.877 & 0.962 \\
  & THR & 0.877 & 0.838 & 0.870 & 0.962 \\
 CLIP & APS & 0.884 & 0.884 & 0.873 & 0.999 \\
- & RAPS & 0.884 & 0.883 & 0.873 & 0.999 \\
  & THR & 0.884 & 0.883 & 0.872 & 0.999 \\
 DINOv2 & APS & 0.878 & 0.878 & 0.869 & 0.999 \\
- & RAPS & 0.879 & 0.879 & 0.869 & 0.999 \\
  & THR & 0.879 & 0.879 & 0.879 & 0.999 \\
 ViT-B/16 & APS & 0.877 & 0.878 & 0.877 & 0.993 \\
- & RAPS & 0.877 & 0.878 & 0.877 & 0.993 \\
  & THR & 0.869 & 0.866 & 0.866 & 0.993 \\
 \botrule
 \end{tabular}
@@ -289,30 +129,6 @@ ResNet-50 & 0.0010 & 0.0187 & 0.0214 \\
 CLIP & 0.0020 & 0.0109 & 0.0074 \\
 DINOv2 & 0.0026 & 0.0142 & 0.0118 \\
 ViT-B/16 & 0.0020 & 0.0139 & 0.0085 \\
-\botrule
-\end{tabular}
-\end{table}
-
-\begin{table}[H]
-\centering
-\caption{Mean coverage over groups and set-size disparity (APS, $\rhocal=\rhotest=0.95$), averaged over the kept training methods. Disparity is the spread in mean set size across groups; it is the cost the Discussion prices against the coverage gained by giving each group its own threshold.}
-\label{tab:disparity}
-\footnotesize
-\setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{lcccc}
-\toprule
-Setting & mean cov (shared) & mean cov (per-group) & disparity (shared) & disparity (per-group) \\
-\midrule
-\multicolumn{5}{l}{\emph{Waterbirds}} \\
-ResNet-50 & 0.847 & 0.905 & 0.132 & 0.608 \\
-CLIP & 0.852 & 0.901 & 0.173 & 0.521 \\
-DINOv2 & 0.889 & 0.905 & 0.080 & 0.200 \\
-ViT-B/16 & 0.869 & 0.906 & 0.140 & 0.449 \\
-\multicolumn{5}{l}{\emph{CelebA}} \\
-ResNet-50 & 0.925 & 0.900 & 0.339 & 0.505 \\
-CLIP & 0.913 & 0.902 & 0.239 & 0.313 \\
-DINOv2 & 0.908 & 0.900 & 0.152 & 0.198 \\
-ViT-B/16 & 0.906 & 0.900 & 0.163 & 0.168 \\
 \botrule
 \end{tabular}
 \end{table}

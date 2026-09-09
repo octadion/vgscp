@@ -134,7 +134,7 @@ Counts extracted from the two versions of the source.
 & \textbf{Submitted} & \textbf{Revised} & \textbf{Note} \\
 \midrule
 Source lines & 1{,}034 & 1{,}765 & $+71\%$, most of it appendix tables \\
-Tables & 6 & 22 & 7 in the body, 15 in the appendix \\
+Tables & 6 & 18 & 7 in the body, 11 in the appendix \\
 Figures & 4 & 7 & all seven regenerated; none carried over \\
 Numbered equations & 3 & 7 & two are in Proposition~1(ii) \\
 Propositions & 1 & 1 & part (ii) rewritten \\
@@ -160,19 +160,19 @@ hypothesis they belong to:
 A & Derivations & Proof of Proposition~1; where the worst group actually lands
 (Table~A1, new); the constant $c_{4}=1.029$; a construction showing $W_1$ carries no bound \\
 \addlinespace
-B & Full Results & Tables~B2--B11, including per-group coverage for all four groups:
+B & Full Results & Tables~B2--B7, including per-group coverage for all four groups:
 every (setting, method, score) number behind the body \\
 \addlinespace
 C & Why Mondrian sits below target & The min-over-groups effect, simulated at our own
-per-group counts (Table~C12, Figure~C1) --- R1.1 \\
+per-group counts (Table~C8, Figure~C1) --- R1.1 \\
 \addlinespace
 D & Pre-specified hypotheses & The six hypotheses as fixed before the experiments --- R2.4 \\
 \addlinespace
 E & Excluded and flagged methods & Sensitivity analysis, separated into seed-level and
-method-level restoration; the AFR diagnosis; the daggered values (Table~E14) --- R2.4 \\
+method-level restoration; the AFR diagnosis; the daggered values (Table~E10) --- R2.4 \\
 \addlinespace
 F & Procedures and statistics & Exact calibration/test construction with per-group counts
-(Table~F15), all hyperparameters, the shift-robust threshold in closed form, seeds --- R2.6 \\
+(Table~F11), all hyperparameters, the shift-robust threshold in closed form, seeds --- R2.6 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -300,7 +300,7 @@ them are set out in Appendix~F.} \\
 Section~3, Proposition~1(ii) & \now{Exact shortfall identity and the KS bound that follows, plus a
 remark on what $W_1$ and $D_{\mathrm{KS}}$ do and do not give.} \\
 \addlinespace
-Appendix~C, Table~C12, Figure~C1 & \now{The sub-target level explained and measured
+Appendix~C, Table~C8, Figure~C1 & \now{The sub-target level explained and measured
 against an exactly valid Mondrian procedure simulated at our own per-group counts.} \\
 \addlinespace
 Appendix~B, Table~B2 & \now{Per-group coverage for all four groups, from a re-run of the
@@ -324,7 +324,7 @@ Section~5.5 and ethics & \now{Predicted-group mechanics, the supervision actuall
 the asymmetric propagation of probe error, and the privacy limits on inferring a sensitive
 attribute.} \\
 \addlinespace
-Appendix~F, Table~F15 & \now{Exact calibration/test construction with per-group
+Appendix~F, Table~F11 & \now{Exact calibration/test construction with per-group
 calibration and test counts, all hyperparameters, the shift-robust threshold in closed form, seeds,
 and run times.} \\
 \bottomrule
@@ -336,7 +336,7 @@ and run times.} \\
 \begin{enumerate}[leftmargin=1.5em,itemsep=0.35em]
 \item A definitional inconsistency in the coverage gap (above).
 \item A rendering defect in the predicted-group table, which declared eight columns and supplied
-seven. All twenty-two tables now pass a column-count check, none has a column that is blank in
+seven. All eighteen tables now pass a column-count check, none has a column that is blank in
 every row, and every one was measured against the text block so that none runs into the margin.
 \item An empty-set disclosure: on DINOv2/Waterbirds the mean worst-group set size is below one
 ($0.888$--$0.962$ across methods and scores), so a small fraction of prediction sets are

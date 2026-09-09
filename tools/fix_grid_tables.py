@@ -1,14 +1,13 @@
-"""Reshape the three grid tables and let them break across pages.
+"""Prepend the cross-score spread table to the generated appendix tables.
 
-They were 97 data rows each -- one row per (setting, method, calibration rule) -- inside a `table`
-environment, which cannot break across a page. So they ran off the bottom.
+The per-(setting, method) grids used to live here. They were reshaped from 97 rows to 40 and made
+into longtables so they would break across pages, and even so the two that survived ran to about
+three pages between them. What they were there to support is a single comparison -- the spread in
+worst-group coverage across training methods, under one shared threshold against per-group ones --
+and the table built below states that spread for all three conformity scores at once, in nine rows.
+The grids are the released records rather than the argument, so that is where they now stay.
 
-Two fixes. The rules move from rows to column groups, which turns 97 rows into 40: one row per
-(setting, method), with worst-group coverage and worst-group set size under each of the three
-rules. That is both shorter and easier to read, since the comparison the table exists to support
-now sits side by side on one line instead of spread over three. And the environment becomes
-`longtable`, so if a table still runs past a page it breaks with its header repeated rather than
-overflowing.
+Set SC back to a list of score names to print a grid again.
 """
 import csv
 import io
@@ -33,8 +32,8 @@ MNAME = {"erm": "ERM", "dfr": "DFR", "afr": "AFR",
          "balanced_subsample": "Bal.\\ sub.", "groupdro_ll": "GroupDRO-LL"}
 BB = ["resnet50_erm", "clip_vitb32", "dinov2_vitb14", "vit_b16_in1k"]
 DS = ["waterbirds", "celeba"]
-# RAPS is summarised rather than tabulated in full: see the cross-score spread table
-SC = ["APS", "THR"]
+# No score is tabulated per method any more: the cross-score spread table carries the claim.
+SC = []
 SC_ALL = ["APS", "RAPS", "THR"]
 MS = ["erm", "dfr", "afr", "balanced_subsample", "groupdro_ll"]
 POL = ["marginal_split", "mondrian", "shift_robust"]
@@ -145,11 +144,10 @@ summary_block = "\n".join(
     + sp_rows + [r"\botrule", r"\end{tabular}", r"\end{table}", ""])
 new_blocks.insert(0, summary_block)
 
-# ---- splice the new blocks in place of the old three
+# ---- put the summary at the head of the generated file
 old = io.open(OUT, encoding="utf-8", newline="").read()
-tail_start = old.index(r"\begin{table}[H]", old.index("tab:gridTHR"))
-tail = old[tail_start:]
-io.open(OUT, "w", encoding="utf-8", newline="").write("\n".join(new_blocks) + "\n" + tail)
+assert "tab:grid" not in old, "gen_appendix_tables.py masih menulis tabel grid"
+io.open(OUT, "w", encoding="utf-8", newline="").write("\n".join(new_blocks) + "\n" + old)
 
 s2 = io.open(OUT, encoding="utf-8").read()
 print(f"\nbaris berkas: {len(old.splitlines())} -> {len(s2.splitlines())}")

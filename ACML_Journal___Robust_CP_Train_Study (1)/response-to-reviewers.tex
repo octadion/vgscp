@@ -134,7 +134,7 @@ The cause is that we report a \textbf{minimum over four noisy per-group coverage
 downward-biased statistic even when every group is individually valid. We now demonstrate this with
 a direct measurement rather than an argument.
 
-\where{Section~5.1 (end), Section~5.5, and Appendix~C in full (Table~C12 and Figure~C1).}
+\where{Section~5.1 (end), Section~5.5, and Appendix~C in full (Table~C8 and Figure~C1).}
 
 \begin{revised}
 Mondrian settles a little under the nominal $0.90$: averaged over the kept training
@@ -238,7 +238,7 @@ $0.20$--$0.95$ range of worst-group accuracy and the dissociation is unchanged a
 and stability of the reported results.''
 \end{reviewer}
 
-\where{Section~4, new paragraph; Table~2 (intervals over seeds); Table~B10 (seed-versus-split variance); Appendix~F (seed sets).}
+\where{Section~4, new paragraph; Table~2 (intervals over seeds); Table~B7 (seed-versus-split variance); Appendix~F (seed sets).}
 
 The main grid and the end-to-end fine-tuning study now run \textbf{five} training seeds; the
 calibration-policy ablation runs three, and the manuscript states the design as $\ge 3$ training
@@ -496,7 +496,7 @@ counts, training hyperparameters, the shift-robust procedure, random seeds, and 
 code with reproducible commands.''
 \end{reviewer}
 
-\where{Sections~5.3, 5.4 and 5.5 (moderation); Appendix~F with Table~F15 (reproducibility).}
+\where{Sections~5.3, 5.4 and 5.5 (moderation); Appendix~F with Table~F11 (reproducibility).}
 
 \textbf{Moderation.} Four statements are now withdrawn rather than softened, because measurement
 contradicts them.
@@ -513,7 +513,7 @@ under marginal calibration training still moves coverage, so it is not a general
 \item ``Mondrian is $2$--$4\times$ more split-stable than marginal calibration'' is
 \textbf{withdrawn}. It held on the two backbones of the submitted version but not on four: across
 the eight settings Mondrian is in fact the \emph{less} stable of the two in five of them
-(Section~5.5, Table~B10).
+(Section~5.5, Table~B7).
 \end{enumerate}
 
 \begin{revised}
@@ -613,7 +613,7 @@ that contradicted both the implementation and the submitted paper's own appendix
 $(1-\alpha) - \min_g \mathrm{cov}_g$, matching both.
 \item \textbf{A rendering defect in the predicted-group table.} It declared eight columns and
 supplied seven, leaving a stray empty column. Fixed during the rewrite; all
-twenty-two tables now pass a column-count check, none has a column that is blank in every row, and
+eighteen tables now pass a column-count check, none has a column that is blank in every row, and
 each was measured against the text block so none runs into the margin.
 \item \textbf{An empty-set disclosure.} On DINOv2/Waterbirds the mean worst-group set size is
 \emph{below one} ($0.888$--$0.962$ across methods and scores), meaning a small fraction
