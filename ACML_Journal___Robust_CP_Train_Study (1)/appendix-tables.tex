@@ -1,6 +1,6 @@
 \begin{table}[H]
 \centering
-\caption{The dissociation across all three conformity scores ($\rhocal=\rhotest=0.95$): the spread in worst-group coverage across the kept training methods, under one shared threshold and under per-group thresholds. Per-group spreads run $0.001$--$0.029$ against $0.002$--$0.478$ for the shared rule, and are the smaller of the two in $22$ of the $24$ pairs; the exceptions are ViT-B/16 on CelebA under APS and RAPS, where the shared threshold already leaves almost nothing to recover.}
+\caption{The dissociation across all three conformity scores ($\rhocal=\rhotest=0.95$): the spread in worst-group coverage across the kept training methods, under one shared threshold and under per-group thresholds.}
 \label{tab:scorespread}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
@@ -110,7 +110,7 @@ ViT-B/16 & APS & 0.877 & 0.878 & 0.877 & 0.993 \\
 
 \begin{table}[H]
 \centering
-\caption{Where the variance sits, and how the two rules compare on it. For each setting, the standard deviation of worst-group coverage across training seeds and across calibration splits (APS, per-group thresholds for the first two columns, $\rhocal=\rhotest=0.95$), averaged over the kept training methods; the last column repeats the split-to-split figure under one shared threshold, so the two rules can be compared. ERM and AFR are omitted: their solver ignores the seed, so their across-seed standard deviation is exactly zero.}
+\caption{Where the variance sits, and how the two rules compare on it. For each setting, the standard deviation of worst-group coverage across training seeds and across calibration splits (APS, per-group thresholds for the first two columns, $\rhocal=\rhotest=0.95$), averaged over the kept training methods; the last column repeats the split-to-split figure under one shared threshold. ERM and AFR are omitted: their solver ignores the seed, so their across-seed standard deviation is exactly zero.}
 \label{tab:variance}
 \footnotesize
 \setlength{\tabcolsep}{3.5pt}

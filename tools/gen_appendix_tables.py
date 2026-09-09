@@ -194,7 +194,7 @@ head(r"Where the variance sits, and how the two rules compare on it. For each se
      r"coverage across training seeds and across calibration splits (APS, per-group "
      r"thresholds for the first two columns, $\rhocal=\rhotest=0.95$), averaged over the "
      r"kept training methods; the last column repeats the split-to-split figure under one "
-     r"shared threshold, so the two rules can be compared. "
+     r"shared threshold. "
      r"ERM and AFR are omitted: their solver ignores the seed, so their across-seed "
      r"standard deviation is exactly zero.",
      "tab:variance", "lccc",

@@ -129,12 +129,11 @@ for ds in DS:
 
 summary_block = "\n".join(
     [r"\begin{table}[H]", r"\centering",
+     # The ranges and the count of exceptions are stated in the paragraph that cites this table,
+     # two paragraphs above it, so the caption gives the reading of the columns and nothing else.
      r"\caption{The dissociation across all three conformity scores "
      r"($\rhocal=\rhotest=0.95$): the spread in worst-group coverage across the kept training "
-     r"methods, under one shared threshold and under per-group thresholds. Per-group spreads run "
-     r"$0.001$--$0.029$ against $0.002$--$0.478$ for the shared rule, and are the smaller of the "
-     r"two in $22$ of the $24$ pairs; the exceptions are ViT-B/16 on CelebA under APS and RAPS, "
-     r"where the shared threshold already leaves almost nothing to recover.}",
+     r"methods, under one shared threshold and under per-group thresholds.}",
      r"\label{tab:scorespread}", r"\footnotesize",
      r"\setlength{\tabcolsep}{4pt}",
      r"\begin{tabular}{@{}l" + "cc" * 3 + r"@{}}", r"\toprule",
