@@ -1245,3 +1245,62 @@ It also refuses to run without the ablation CSV: the export verifies itself agai
 for the same cell, and cell 3 searches five plausible locations before prompting for an upload.
 
 Signatures were checked against the notebook's calls after generation.
+
+---
+
+## Review-process language removed from the manuscript
+
+The paper was carrying the review process inside it. That was my error: reviewer codes, direct
+address, and references to the paper's own earlier draft belong in the response letter, which
+already records all of it. A published article is a standalone artifact read by people who never
+saw the submission or the reports.
+
+### What was in there
+
+| location | text | now |
+|---|---|---|
+| Section 3, remark | "we thank a **reviewer** for observing that this does not follow" | "It does not follow from Eq. (7) that the shortfall grows with the divergence, and in general it does not." |
+| Section 4, gate | "the sensitivity analysis **R2.4 asks for** needs no re-run" | "the sensitivity analysis of Appendix C requires no additional runs" |
+| Section 5.4 | "as **we previously described it** ... the earlier characterisation ... **is withdrawn**" | "Nor is the spread negligible. ... The efficiency range is therefore not narrow" |
+| Section 5.4 | "the $-0.97$ and $-1.00$ **we previously reported** on the two **original** CelebA cells" | "coefficients as extreme as $-0.97$ and $-1.00$, which two of the CelebA cells produce" |
+| Section 5.5 | "harder than **we previously reported** ... **The submitted version** pooled" | "requires more care than it appears to. The natural way ... is to pool ..., but the axis this produces is mostly evaluation-draw noise" |
+| Section 5.5 | "The two further matched values reported in **the submitted version** ... **are withdrawn**" | "Two further cells ... appear matched only on the split-level spread ... we report them as unmatched" |
+| Section 5.5 | "as **the reviewer asks**" | deleted |
+| Section 5.7 | "(**An earlier version** also claimed ... so **we withdraw** that comparison.)" | "Mondrian's advantage over marginal calibration lies in the *level* it attains rather than in its variance across splits: marginal's split-to-split SD is 0.009--0.042 ..." |
+| Appendix C | "\paragraph{Influence of the excluded arms **(R2.4)**.}" | "\paragraph{Influence of the excluded arms.}" |
+
+Every finding and every number survives. The withdrawals now read as positive statements of what
+is true, which is both correct and better prose -- the reader learns that marginal's SD is
+0.009--0.042 rather than that a previous draft said otherwise. The retractions remain documented in
+`response-to-reviewers.tex` and `before-after.tex`, where they belong.
+
+Verified by scan: no `R[123].[0-9]`, no "reviewer", no "earlier/previous/submitted version", no
+"we thank"/"we previously", no withdrawal language anywhere in the manuscript.
+
+### A numeric error found while doing it
+
+Section 5.5 said the CelebA robust arms reach $0.83$--$0.91$ base accuracy while the `fig:h1`
+caption said $0.81$--$0.91$ for the same quantity. Per-cell means run **0.8089 to 0.9123**, so the
+caption was right and the body was wrong. This is the same error that was in the response letter,
+and it survived the earlier consistency pass because the body writes it as `$0.83$--$0.91$` -- the
+`$` delimiters between the two numbers defeated the literal string search that found the others.
+
+### Released filenames were being recited three times
+
+The same four CSV names appeared in the data-availability statement, again in Appendix A with their
+record counts repeated, and a third time in Appendix D under "Release." Naming released artifacts
+once is good practice; three times reads like a file listing. Appendix A was also leading each
+paragraph with a filename where it should lead with a finding, and was titled "Supplementary
+Results **and Released Records**".
+
+Now: the availability statement keeps the canonical list with counts, Appendix A keeps one filename
+per paragraph as a pointer but drops the duplicated counts and is retitled "Supplementary Results",
+and Appendix D points at the availability statement instead of repeating the list. Each file is
+named exactly twice, down from three times. A stray duplication inside the availability sentence
+itself ("figure scripts are released: ... together with the quality-gate log and all figure
+scripts") was repaired.
+
+### Manuscript state
+
+1,471 lines. Nine tables passing the column check, six figures, braces 806/806, no dangling
+references, no stray control characters.

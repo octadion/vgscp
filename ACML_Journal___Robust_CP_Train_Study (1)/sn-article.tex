@@ -8,6 +8,17 @@
 \usepackage{longtable}%
 \usepackage{array}% >{...} column modifiers in the verdict table
 \usepackage[section]{placeins}% keep a section's floats from drifting into the next one
+% Float placement. The class defaults assume a document with few floats; with 22 tables they force
+% large ones onto pages of their own and leave the surrounding page half empty. These are the usual
+% values for a table-heavy paper: a page may be mostly float, a float may be most of a page, and
+% LaTeX tries harder before deferring.
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.75}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{5}
 \usepackage{tikz}%
 \usetikzlibrary{calc,positioning,arrows.meta}%
 \theoremstyle{thmstyleone}%
@@ -78,17 +89,16 @@ robust training should pay off for the uncertainty estimates built on top of it.
 
 It does not. Holding the model fixed and changing only the calibration rule moves
 worst-group coverage further than any training method we tried, and the effect survives
-fine-tuning the representation end-to-end. How large it will be is also predictable in
-advance: the shortfall a shared threshold produces is bounded by the
-Kolmogorov--Smirnov distance between the worst group's score distribution and everyone
-else's, and across our eight settings that distance, measured before any
-re-calibration, tracks how much a per-group threshold goes on to recover---an association we report
-as such rather than as a prediction the theory underwrites.
+fine-tuning the representation end-to-end. The size of the effect has a measurable source: the shortfall a shared
+threshold produces is bounded by the Kolmogorov--Smirnov distance between the worst group's score
+distribution and everyone else's. Across our eight settings that distance also tracks how much a
+per-group threshold recovers, though with eight points in two dataset clusters we read that as an
+association rather than a prediction.
 
 Our contributions are:
 \begin{enumerate}
-\item \textbf{Finding: the calibration rule moves worst-group coverage far more than the
-training method does (Section~\ref{sec:c1}).} With the model held fixed, coverage spreads across training
+\item \textbf{The calibration rule moves worst-group coverage far more than the training
+method does (Section~\ref{sec:c1}).} With the model held fixed, coverage spreads across training
 methods by up to $0.358$ under one shared threshold and by at most $0.024$ under
 per-group thresholds, in every one of eight backbone--dataset settings. The gap never
 closes: the smallest lift from re-calibrating a fixed model, $+0.059$, is still more than twice the
@@ -96,14 +106,13 @@ largest spread across training methods, and every lift interval excludes zero. F
 backbone end-to-end does not change this (Section~\ref{sec:repr}), so it is not an artefact of
 frozen features.
 
-\item \textbf{Mechanism, not a separate result: the size of the effect tracks the score
-geometry (Section~\ref{sec:c1}).} The shortfall obeys the bound of Eq.~\eqref{eq:ksbound} in every
-setting, run by run and for whichever group is worst in that run---which is a check on the
-proposition of Section~\ref{sec:setup} rather than an independent finding, and the bound is tight
-on Waterbirds and slack on CelebA. Whether the same divergence also anticipates how much re-calibrating will
-gain is a separate and weaker question, taken up in Section~\ref{sec:c1}.
+\item \textbf{The size of that effect tracks the score geometry
+(Section~\ref{sec:c1}).} The shortfall obeys the bound of Eq.~\eqref{eq:ksbound} in every setting,
+run by run and for whichever group is worst in that run. This checks the proposition of
+Section~\ref{sec:setup} against our own data rather than establishing anything new, and the bound
+is tight on Waterbirds and slack on CelebA.
 
-\item \textbf{Finding: what training does buy is smaller sets, and only once calibration is
+\item \textbf{What training does buy is smaller sets, and only once calibration is
 group-conditional (Section~\ref{sec:c2}).} With coverage matched across methods, the worst group's
 set size still differs substantially between them---by $0.036$ to $0.364$, and a two-one-sided-test
 check rejects equivalence at a $0.10$ margin in six of eight settings. Which method wins is only
@@ -112,11 +121,11 @@ and ERM the largest in four of the six where it is retained, but the per-setting
 accuracy--size correlations are uninformative in five of eight once an interval is attached. We
 report the tendency, not a ranking rule.
 
-\item \textbf{Methodological note: a protocol that separates the two, and how little
-survives it (Section~\ref{sec:h1}).} Comparing cross-group divergence at matched model-level
-accuracy leaves one of eight settings with overlapping support, because robust training
-moves base accuracy away from ERM's operating point. Uncontrolled comparisons credit
-training with a reduction that cannot be separated from an accuracy effect.
+\item \textbf{A protocol that separates the two, and how little survives it
+(Section~\ref{sec:h1}).} Comparing cross-group divergence at matched model-level accuracy leaves
+one of eight settings with overlapping support, because robust training moves base accuracy away
+from ERM's operating point. This is a negative result about what can be measured: uncontrolled
+comparisons credit training with a reduction that cannot be separated from an accuracy effect.
 \end{enumerate}
 
 Figure~\ref{fig:overview} states the confound, the mechanism and what the fix costs.
@@ -561,7 +570,6 @@ ViT-B/16$^{\dagger}$ & 0.804 & 0.886 & $+0.082$ & 0.003 & \textbf{0.008}\,[0.006
 \end{tabular}
 \end{table}
 
-\FloatBarrier
 \subsection{Retraining the Representation}
 \label{sec:repr}
 
@@ -638,7 +646,6 @@ representations; coverage under per-group thresholds (blue) does not move. Rewei
 \label{fig:repr}
 \end{figure}
 
-\FloatBarrier
 \subsection{What Training Buys Instead: Smaller Sets}
 \label{sec:c2}
 
@@ -706,7 +713,6 @@ ViT-B/16 & $^{\dagger}$--- & 1.105 & 0.039 & $-0.97$ & $[-1.00,-0.97]$ \\
 \end{tabular}
 \end{table}
 
-\FloatBarrier
 \subsection{The Apparent Transfer Cannot Be Separated from Accuracy}
 \label{sec:h1}
 
@@ -817,7 +823,6 @@ ViT-B/16 & GroupDRO-LL & 0.874 & 0.019\,[0.017,0.021] & Bal.\ sub. & 0.018 & no 
 \end{tabular}
 \end{table}
 
-\FloatBarrier
 \subsection{When Deployment Differs from Calibration}
 \label{sec:h3}
 
@@ -968,7 +973,6 @@ ViT-B/16 & 0.993 & 0.001 & 0.003 & 3/3 & --- \\
 \end{tabular}
 \end{table}
 
-\FloatBarrier
 \section{Discussion}
 \label{sec:discussion}
 

@@ -55,3 +55,15 @@ CHANGELOG_v4.md
 RESULTS_v4.md
 RESULTS_v4b_diagnostic.md
 AUDIT_study.md
+
+# process artefacts: kept on disk, out of the way
+refs/
+_backup_*.zip
+*.synctex.gz
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
