@@ -205,6 +205,57 @@ for ds, c in datarows(table("tab:variance")):
         if got is None or abs(got - want) > 0.00006:
             bad.append(f"  variance: {c[0]}/{ds} {w} tertulis {got}, dihitung {want:.4f}")
 
+# ---------------------------------------------------------------- fine-tuning study
+# Generated, but never re-derived here until now: the generator agreeing with itself proved
+# nothing, and dropping the RAPS rows shifted every row of this table.
+print("=== tab:reprfull ===", end=" ")
+rep = [r for r in csv.DictReader(open(f"{R}/representation_records.csv"))]
+RPNAME = {"ERM": "erm", "GroupDRO": "groupdro", "Reweighting": "reweight"}
+_rows, _cur = datarows(table("tab:reprfull")), None
+print(f"{len(_rows)} baris")
+assert _rows, "TIDAK ADA BARIS TERBACA: tab:reprfull"
+for ds, c in _rows:
+    if c[0]:
+        _cur = c[0]
+    sc = c[1]
+    base = [r for r in rep if r["dataset"] == ds and r["representation"] == RPNAME[_cur]
+            and r["score"] == sc and r["rho_test"] == "0.95" and r["head"] == "erm"]
+    check("reprfull", num(c[2]), mean(base, "worst_group_acc"), f"{_cur}/{ds}/{sc} wg acc")
+    for k, pol in enumerate(("marginal_split", "mondrian")):
+        p = [r for r in base if r["calibration"] == pol]
+        by = defaultdict(list)
+        for r_ in p:
+            by[r_["ft_seed"]].append(float(r_["worst_group_cov"]))
+        per_seed = [np.mean(v) for v in by.values()]
+        check("reprfull", num(c[3 + k]), np.mean(per_seed) if per_seed else None,
+              f"{_cur}/{ds}/{sc} cov {pol}")
+        # the bracketed figure is the across-seed SD, so it needs its own parse
+        got_sd = re.search(r"\[(\d\.\d+)\]", c[3 + k])
+        want_sd = np.std(per_seed) if per_seed else None
+        if got_sd is None or want_sd is None or abs(float(got_sd.group(1)) - want_sd) > 0.0006:
+            bad.append(f"  reprfull: {_cur}/{ds}/{sc} SD {pol} tertulis {got_sd and got_sd.group(1)}"
+                       f", dihitung {want_sd}")
+
+# ---------------------------------------------------------------- predicted groups
+print("=== tab:pgfull ===", end=" ")
+pg = [r for r in csv.DictReader(open(f"{R}/predicted_group_mondrian_4bb.csv"))
+      if r["gate_status"] != "excluded"]
+COND = sorted({r["condition"] for r in pg})
+_rows, _cur = datarows(table("tab:pgfull")), None
+print(f"{len(_rows)} baris")
+assert _rows, "TIDAK ADA BARIS TERBACA: tab:pgfull"
+for ds, c in _rows:
+    if c[0]:
+        _cur = c[0]
+    sc = c[1]
+    for k, cond in enumerate(COND):
+        sel = [r for r in pg if r["backbone"] == NAME[_cur] and r["dataset"] == ds
+               and r["score"] == sc and r["condition"] == cond]
+        check("pgfull", num(c[2 + k]), mean(sel, "worst_group_cov"),
+              f"{_cur}/{ds}/{sc} {cond}")
+    au = [r for r in pg if r["backbone"] == NAME[_cur] and r["dataset"] == ds]
+    check("pgfull", num(c[2 + len(COND)]), mean(au, "probe_auroc"), f"{_cur}/{ds} AUROC")
+
 # ---------------------------------------------------------------- cross-score spread
 # This table now carries the claim the RAPS grid used to, so its 48 cells are verified too.
 print("=== tab:scorespread ===", end=" ")

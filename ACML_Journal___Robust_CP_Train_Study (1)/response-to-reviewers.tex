@@ -60,16 +60,17 @@
 \noindent\textcolor{rulegrey}{\rule{\textwidth}{1pt}}
 
 We thank the three reviewers and the editor for reviews that were specific enough to act on. Two of
-the comments identified genuine errors in our analysis, and acting on them changed several reported
-numbers; we say so explicitly below rather than presenting the revision as a clarification. All
+the comments identified genuine errors in our analysis, and acting on them changed several of the
+numbers we report; we say where below. All
 reviewer requests have been implemented, including the two that required new experiments.
 
-Passages set off by a blue rule are quoted from the revised manuscript. Because this letter compiles on its own, citations in those quotations are expanded to author and year and internal cross-references are dropped; nothing else is altered.
+Passages marked with a blue rule are the revised manuscript's own words. Citations in them are
+given as author and year and internal cross-references are omitted, so that this letter reads on
+its own; the wording is otherwise unchanged.
 
-The revision rests on new runs: a four-backbone grid ($36{,}000$ records), a four-backbone
-calibration ablation across three calibration policies ($64{,}800$), a four-backbone
-predicted-group study ($10{,}800$), and an end-to-end fine-tuning study in which the representation
-itself is retrained ($4{,}320$). Every table in the paper has been recomputed from these.
+The revision rests on new experiments: a grid over four backbones, a calibration ablation across
+three calibration rules, a predicted-group study, and an end-to-end fine-tuning study in which the
+representation itself is retrained. Every table in the paper comes from these.
 
 \section*{Summary of the principal changes}
 
@@ -114,10 +115,9 @@ citation added. & R1.3, R1.5, R2.6 \\
 \bottomrule
 \end{longtable}
 
-The revised manuscript runs to 45 pages against the 20 at submission: 22 of body and
-declarations, 20 of appendices holding the requested tables, and 3 of references. We would rather
-report the requested experiments and analyses in full than compress them, and we are glad to
-shorten if the editorial office requires it.
+The revised manuscript runs to 36 pages against the 20 at submission, most of the growth being the
+appendix tables the reviews asked for. We are glad to shorten further if the editorial office
+requires it.
 
 \section*{Reviewer 1}
 
@@ -413,8 +413,8 @@ the distinction stated.
 \textbf{Sensitivity analysis.} Every excluded run was evaluated and its records retained, so
 this needed no re-run. The two kinds of exclusion are now reported separately, because they are
 different questions. The three individual seeds all sit in one setting whose across-method spread
-is $0.003$, so restoring them could not have moved the maximum of $0.024$ and does not; we say so
-in the appendix rather than present a foregone number as evidence. Restoring the whole excluded
+is $0.003$, so restoring them could not have moved the maximum of $0.024$, and does not. The
+appendix reports that as arithmetic rather than as evidence. Restoring the whole excluded
 methods is the real test, and the dissociation survives it: the Mondrian cross-training spread
 rises only to $0.028$ against $0.024$. \textbf{One thing does change, and we report it against
 ourselves:} the pre-specified C1 criterion --- Mondrian within $0.02$ of target \emph{and} marginal
@@ -562,8 +562,7 @@ More Than Training Does''.
 
 \textbf{Confidence intervals.} The estimates that carry the paper's claims now come with a
 two-stage cluster bootstrap interval that resamples training seeds and then calibration splits
-within them: Tables~2, 4 and 6. Tables~3, 5 and 7 remain point estimates, and we say so rather than
-claim more --- Table~3's across-seed spread is given separately in Appendix~B, Table~5 reports
+within them: Tables~2, 4 and 6. Tables~3, 5 and 7 remain point estimates and are labelled as such --- Table~3's across-seed spread is given separately in Appendix~B, Table~5 reports
 accuracy \emph{supports} rather than a single estimate, and Table~7 reports a median and a maximum.
 The important addition is Table~2, which carries the central claim and previously had neither
 intervals nor a test: its ERM lift and its across-method spread are both reported with intervals, and every lift
@@ -603,9 +602,10 @@ including the $-0.97$ and $-1.00$ we previously highlighted, which at $n=4$ meth
 of a deterministic relationship. Table~4 now prints each interval, italicised where it spans
 essentially $[-1, +1]$, and the text reports a direction rather than an estimate.
 
-\section*{Changes we made without being asked}
+\section*{Further corrections}
 
-Three, all disclosed so that no reader discovers a silent alteration.
+Three defects we found ourselves while revising. No review raised them, and we list them here so
+that none is a silent change.
 
 \begin{enumerate}[leftmargin=1.4em,itemsep=0.35em]
 \item \textbf{A definitional inconsistency in Section~3.} The coverage gap was defined in a way
@@ -625,10 +625,10 @@ confused. We report it rather than clipping sets to a minimum of one, which woul
 \vspace{0.4em}
 \noindent\textcolor{rulegrey}{\rule{\textwidth}{1pt}}
 
-We are grateful for the care the reviewers took. The revision is materially more honest than the
-submission: two analyses were corrected, four claims withdrawn, and one pre-specified criterion
-reported as failing in seven of eight settings. We believe the paper's central finding is stronger for
-it, since it now rests on eight backbone--dataset settings and on a study in which the representation
-itself is retrained, rather than on the absolute dichotomy the reviewers rightly questioned.
+We are grateful for the care the reviewers took. The revision corrects two analyses, withdraws four
+claims, and reports one pre-specified criterion as failing in seven of eight settings. We believe
+the paper's central finding is stronger for it, since it now rests on eight backbone--dataset
+settings and on a study in which the representation itself is retrained, rather than on the
+absolute dichotomy the reviewers rightly questioned.
 
 \end{document}

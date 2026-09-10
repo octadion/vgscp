@@ -1435,9 +1435,8 @@ coverage far more than the representation does.
 \begin{hypothesis}[Training buys efficiency]\label{hyp:c2}
 Holding Mondrian fixed, worst-group set size differs by training method and tracks
 base accuracy. \emph{As tested}, we read this against \emph{worst-group} accuracy rather than base
-accuracy (Table~\ref{tab:c2}), which is the quantity the training methods are chosen to move; the
-substitution was made when the analysis was written and we note it rather than restate the
-hypothesis.
+accuracy (Table~\ref{tab:c2}), which is the quantity the training methods are chosen to move. The
+substitution was made when the analysis was written, and the hypothesis is left as it was fixed.
 \end{hypothesis}
 \begin{hypothesis}[Transfer]\label{hyp:h1}
 Robust training lowers the accuracy-matched divergence relative to ERM (CI of
@@ -1506,7 +1505,7 @@ not of our choice of $\gamma$.
 \paragraph{What changes if they are put back.} The exclusions are of two
 kinds, and they behave differently, so we report them separately. Restoring the three
 individual seeds---GroupDRO-LL seeds $1$ and $4$ and balanced-subsampling seed $4$, all
-on CelebA/ResNet-50---changes nothing, and it is worth being clear why. All three sit in a setting
+on CelebA/ResNet-50---changes nothing. All three sit in a setting
 whose across-method spread is $0.003$, while the maximum of $0.024$ is attained on Waterbirds, so
 no plausible restoration of three seeds in that one setting could have moved the maximum: the
 result is arithmetic rather than evidence. What it does establish is local---the spread in their

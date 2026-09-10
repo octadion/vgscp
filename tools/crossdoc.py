@@ -24,6 +24,10 @@ def norm(t):
     return re.sub(r"\s+", " ", t)
 
 
+# Page count from the author's most recent compile (2026-09-10). Update it after each compile:
+# the letter states this number, and nothing here can measure it.
+PAGES = 36
+
 # (label, regex that must NOT appear anywhere, why)
 SUPERSEDED = [
     ("rentang set kosong lama", r"0\.926\$?--\$?0\.964", "diganti 0.888-0.962"),
@@ -32,8 +36,12 @@ SUPERSEDED = [
     ("SD Mondrian lama", r"0\.023\$?--\$?0\.034", "diganti 0.021-0.036"),
     ("SD marginal lama", r"0\.009\$?--\$?0\.042", "diganti 0.007-0.043"),
     ("celah literatur lama", r"\$10\$--\$24\$", "diganti 12-26 (Waterbirds)"),
-    ("hitungan tabel lama", r"\bnineteen tables\b", "sekarang dua puluh"),
-    ("halaman lama", r"\b36 pages\b", "sekarang ~39"),
+    ("hitungan tabel lama", r"\b(?:nineteen|twenty|twenty-two) tables\b",
+     "sekarang delapan belas; contradict.py menurunkannya dari manuskrip"),
+    # There is no LaTeX here, so the page count cannot be derived -- it comes from the author's
+    # compile. Keep PAGES in step with the last one and the old figures stay barred; every count
+    # below has appeared in the letter at some point and been overtaken.
+    ("halaman lama", r"\b(?:39|42|45) pages\b", f"sekarang {PAGES} pages"),
     ("'dua kegagalan terbesar'", r"two largest failures are ERM", "ERM lalu GroupDRO-LL"),
     ("'tujuh dari delapan'", r"seven of eight settings the most accurate", "enam dari delapan"),
     ("'almost always'", r"almost always the most efficient", "enam dari delapan"),
@@ -50,6 +58,7 @@ AGREE = [
     ("pita Mondrian", r"0\.856\$?--\$?0\.884"),
     ("set kosong", r"0\.888\$?--\$?0\.962"),
     ("celah literatur", r"\$12\$--\$26\$"),
+    ("hitungan halaman", rf"\b{PAGES} pages\b"),
 ]
 
 bad = 0
