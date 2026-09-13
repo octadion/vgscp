@@ -1391,11 +1391,14 @@ ViT-B/16 & 0.804 & 0.886 & 0.263 & 0.30 \\
 $0.013$--$0.029$ on the three ViT backbones of CelebA. The mechanism is a class-prior inversion. At
 the default $\gamma=2$ the reweighting drives the head to predict the positive class for
 $\approx\!86\%$ of examples where the true rate is $\approx\!15\%$, so a \emph{majority} group
-becomes the worst group. The effect is monotone in $\gamma$, and $\gamma=1$ improves on ERM.
-Reporting a method at an untuned hyperparameter would be unfair, so we computed an \emph{oracle}
-upper bound: the best $\gamma$ in $\{0.5,1,2,4\}$ chosen with knowledge of the evaluation set, which
-no selection rule over that grid could beat. It reaches $0.327$, $0.427$, $0.445$ and $0.477$ across the four CelebA backbones, all
-far below the $0.75$ floor. AFR's exclusion is therefore a property of the method in this regime,
+becomes the worst group. Lowering $\gamma$ helps: at $\gamma=1$ AFR's worst-group accuracy rises
+above ERM's on all three, though still far below the floor. Reporting a method at an untuned
+hyperparameter would be unfair, so we computed an \emph{oracle} upper bound: the best $\gamma$ in
+$\{0.5,1,2,4\}$ chosen with knowledge of the evaluation set, which no selection rule over that grid
+could beat. It reaches $0.477$ on CLIP, $0.445$ on ViT-B/16, $0.427$ on ResNet-50 and $0.327$ on
+DINOv2, all far below the $0.75$ floor. The oracle is a separate re-run, and on ResNet-50 its
+$\gamma=2$ value sits $0.007$ below the $0.434$ of Table~\ref{tab:lit}, a re-run difference of the
+size Appendix~\ref{app:hyper} describes for AFR. AFR's exclusion is therefore a property of the method in this regime,
 not of our choice of $\gamma$.
 
 \paragraph{Restoring the excluded runs.} The exclusions are of two kinds and behave differently,

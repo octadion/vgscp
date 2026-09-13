@@ -179,25 +179,64 @@ def _project_out(X_train_fit, s_train, X_list, k: int, *, seed=0):
     return applied, removed
 
 
+def _deflation_path(X_train_fit, s_train, X_eval, ks, *, seed=0, chunk=8192):
+    """Yield ``(k, removed, X_train_k, X_eval_k)`` for each k in ``ks``, deflating once.
+
+    The directions and projected features are the ones ``_project_out`` gives when called
+    separately for each k: direction j is fit on the features after the first j-1 have been
+    removed, so the path to k=5 is the first five steps of the path to k=20. What changes is memory.
+    ``_project_out`` restarts from scratch for every k, keeps two float64 copies of the training
+    features that are deflated identically, and builds a full n-by-d outer product at every step.
+    On CelebA's 162,770 x 2048 ResNet features those are 2.7 GB arrays, several alive at once, and
+    that exhausted a 53 GB runtime. Here one working copy per split is updated in place, a row
+    chunk at a time. The yielded arrays ARE the working copies: use them before advancing.
+    """
+    Xt = np.array(X_train_fit, dtype=np.float64, copy=True)
+    Xe = np.array(X_eval, dtype=np.float64, copy=True)
+    wanted = sorted({int(k) for k in ks})
+    removed, stopped = 0, False
+    for step in range(0, wanted[-1] + 1):
+        if step > 0 and not stopped:
+            clf = LogisticRegression(max_iter=2000, C=1.0, random_state=seed).fit(Xt, s_train)
+            w = clf.coef_[0]
+            nrm = np.linalg.norm(w)
+            del clf
+            if nrm < 1e-12:
+                stopped = True           # as in _project_out: nothing left to remove
+            else:
+                d = w / nrm
+                for X in (Xt, Xe):
+                    for i in range(0, X.shape[0], chunk):
+                        blk = X[i:i + chunk]
+                        blk -= np.outer(blk @ d, d)
+                removed += 1
+        if step in wanted:
+            yield step, removed, Xt, Xe
+
+
 def run_part_b(data_by_key: dict, *, ks=PART_B_KS, seeds=(0, 1, 2), alpha=0.1, rho=0.95,
                n_splits=10) -> dict:
     """For each cell and each k, measure recoverability AUROC + worst-group Mondrian coverage on the
     invariant-ized features, to trace the coverage-vs-auditability tradeoff."""
+    import gc
     cells = {}
     for key, gd in data_by_key.items():
         Xtr, ytr, gtr = gd.train
         Xev, yev, gev = gd.eval_domain
         s_tr, s_ev = spurious_from_group(gtr), spurious_from_group(gev)
-        curve = []
-        for k in ks:
-            (Xtr_k, Xev_k), removed = _project_out(Xtr, s_tr, [Xtr, Xev], k)
+        by_k = {}
+        for k, removed, Xtr_k, Xev_k in _deflation_path(Xtr, s_tr, Xev, ks):
             rec = recoverability_auroc(Xtr_k, s_tr, Xev_k, s_ev, seeds=seeds)
             head = fit_species_head(Xtr_k, ytr, seed=0)
             probs = head_probs(head, Xev_k, gd.n_classes)
+            del head
             cov = mondrian_worst_group_coverage(probs, yev, gev, alpha=alpha, rho=rho, n_splits=n_splits)
-            curve.append({"k": k, "removed": removed, "auroc": rec["auroc_mean"],
-                          "auroc_ci": rec["ci"], "worst_group_cov": cov["worst_group_cov_mean"],
-                          "worst_group_cov_ci": cov["worst_group_cov_ci"]})
+            by_k[k] = {"k": k, "removed": removed, "auroc": rec["auroc_mean"],
+                       "auroc_ci": rec["ci"], "worst_group_cov": cov["worst_group_cov_mean"],
+                       "worst_group_cov_ci": cov["worst_group_cov_ci"]}
+            gc.collect()
+        curve = [by_k[int(k)] for k in ks]       # in the caller's order, as before
+        gc.collect()
         aurocs = [c["auroc"] for c in curve]
         covs = [c["worst_group_cov"] for c in curve]
         # Tension ALIVE = you must DESTROY recoverability to GAIN coverage: coverage materially RISES
