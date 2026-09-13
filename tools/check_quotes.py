@@ -61,3 +61,13 @@ for score, i, line, q in sorted(worst):
     # show the closest run actually present in the paper, to see what it drifted from
     m = SequenceMatcher(None, q, P, autojunk=False).find_longest_match(0, len(q), 0, len(P))
     print(f"    cocok  : ...{P[m.b:m.b + 160]}...\n")
+
+# The verdict line is what verify.sh shows, so this check must be able to fail. Three blocks are
+# paraphrases by the letter's own declared convention (cross-references dropped, citations as
+# author-year, equation numbers spelled out); they are recognised by their opening words and held to
+# a lower floor instead of being exempt, so a paraphrase that drifts from the paper still fails.
+PARAPHRASE = ("groupdro fine tuning raises", "how much of a pretrained network", "admits no such bound")
+fails = [(score, i) for score, i, _, q in worst
+         if not (any(p in q[:80] for p in PARAPHRASE) and score > 0.40)]
+print("SEMUA KUTIPAN COCOK" if not fails else
+      f"{len(fails)} BLOK TIDAK COCOK: " + ", ".join(f"blok {i} ({s:.2f})" for s, i in fails))

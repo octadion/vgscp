@@ -117,12 +117,10 @@ _gaps = [abs(round(_ft(ds, rp, "APS", pol), 3) - round(_ft(ds, rp, "RAPS", pol),
          for pol in ("marginal_split", "mondrian")]
 RAPS_FT_GAP = f"{np.nanmax(_gaps):.3f}"
 
-head(r"The fine-tuning study with its across-seed spread: the ResNet-50 retrained end-to-end "
-     r"under three objectives with the head held fixed at plain ERM "
-     r"($\rhocal=\rhotest=0.95$). Values are means over five fine-tuning seeds; the two "
-     r"coverage columns carry the across-seed standard deviation in brackets, and worst-group "
-     r"accuracy is a per-objective mean that does not vary with the conformity score. RAPS "
-     r"tracks APS to within $" + RAPS_FT_GAP + r"$ throughout and is in the released records.",
+head(r"The fine-tuning study of Table~\ref{tab:repr} for APS and THR ($\rhocal=\rhotest=0.95$): "
+     r"means over five fine-tuning seeds on Waterbirds and three on CelebA, with the across-seed standard deviation in brackets. "
+     r"Worst-group accuracy does not depend on the score. RAPS is within $" + RAPS_FT_GAP + r"$ of APS "
+     r"throughout.",
      "tab:reprfull", "ll" + "ccc",
      ["Objective", "Score", "wg acc", "wg cov shared", "wg cov per-group"])
 # The dataset is already a section header inside the table, so a Dataset column would be blank in
@@ -166,10 +164,10 @@ RAPS_PG_GAP = "{:.3f}".format(np.nanmax(
     [abs(round(_pgc(bb, ds, "APS", c), 3) - round(_pgc(bb, ds, "RAPS", c), 3))
      for bb in BB for ds in DS for c in COND]))
 
-head(r"Predicted-group calibration: worst-group coverage under all three conditions "
-     r"($\rhocal=\rhotest=0.95$), averaged over the kept training methods, for the headline "
-     r"score and for THR. Coverage is always scored against the true groups. RAPS is within "
-     r"$" + RAPS_PG_GAP + r"$ of APS in every cell and is in the released records.",
+head(r"Predicted-group calibration: worst-group coverage under the three conditions of "
+     r"Table~\ref{tab:predgroup} ($\rhocal=\rhotest=0.95$), averaged over the kept training "
+     r"methods, for APS and THR. Coverage is always scored against the true groups. RAPS is "
+     r"within $" + RAPS_PG_GAP + r"$ of APS in every cell.",
      "tab:pgfull", "ll" + "c" * (len(COND) * 1) + "c",
      ["Setting", "Score"] + [c.replace("_", " ") for c in COND] + ["probe AUROC"])
 for ds in DS:
@@ -190,13 +188,10 @@ for ds in DS:
 foot()
 
 # ───────────────────────────────────────────────────────── G6 variance decomposition
-head(r"For each setting, the standard deviation of worst-group "
-     r"coverage across training seeds and across calibration splits (APS, per-group "
-     r"thresholds for the first two columns, $\rhocal=\rhotest=0.95$), averaged over the "
-     r"kept training methods; the last column repeats the split-to-split figure under one "
-     r"shared threshold. "
-     r"ERM and AFR are omitted: their solver ignores the seed, so their across-seed "
-     r"standard deviation is exactly zero.",
+head(r"Standard deviation of worst-group coverage across training seeds and across calibration "
+     r"splits (APS, $\rhocal=\rhotest=0.95$), averaged over the kept training methods: "
+     r"per-group thresholds in the first two columns, one shared threshold in the last. ERM "
+     r"and AFR are omitted because their solver ignores the seed.",
      "tab:variance", "lccc",
      ["Setting", "SD across seeds", "SD across splits", "SD across splits"])
 # Two columns sharing a heading is resolved only by the sub-line below, which does not visibly

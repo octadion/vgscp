@@ -26,7 +26,7 @@ def norm(t):
 
 # Page count from the author's most recent compile (2026-09-10). Update it after each compile:
 # the letter states this number, and nothing here can measure it.
-PAGES = 36
+PAGES = 35
 
 # (label, regex that must NOT appear anywhere, why)
 SUPERSEDED = [
@@ -49,7 +49,20 @@ SUPERSEDED = [
     ("median gap lama", r"\$0\.001\$--\$0\.013\$", "diganti 0.001-0.012"),
     ("disparity lama", r"0\.140\$?--\$?0\.608|0\.080\$?--\$?0\.355", "diganti 0.080-0.339 / 0.168-0.608"),
     ("'minority group' untuk CelebA", r"blond male on\s+CelebA", "g3 CelebA memegang 47.5%"),
+    # The letter once listed a 30,000-image CelebA training subsample as a third protocol difference
+    # behind the gap to published accuracies. An earlier note here said the subsample exists nowhere;
+    # that was wrong, because it only searched the .py files. The subsample is real: it is the
+    # training set of the frozen ResNet-50 backbone on CelebA (CELEBA_RESNET_MAX_TRAIN in
+    # notebooks/revision_cpu_grid.ipynb), and Appendix F states it as part of that backbone's recipe.
+    # What stays wrong is presenting it as a separate protocol difference: the heads are fitted on
+    # the full 162,770-image split, and the manuscript states two differences.
+    ("subsample CelebA sebagai perbedaan protokol ketiga", r"30\{,\}000-image CelebA|30,000-image CelebA",
+     "subsampel 30k itu resep backbone ResNet-50 (Appendix F), bukan perbedaan protokol ketiga"),
+    ("'tiga perbedaan protokol'", r"three protocol differences",
+     "manuskrip menyatakan dua"),
     ("judul lama di surat", r"Is More a\s+Calibration Problem", "judul sekarang 'Calibration Beats...'"),
+    # The 5.1 heading was a finding; headings now name topics. The letter and before-after cite it.
+    ("judul 5.1 lama", r"Calibration Rule Moves Coverage", "sekarang 'Calibration Rule versus Training Method'"),
     ("kutipan abstrak palsu", r"both\}? levers", "tidak ada di manuskrip"),
 ]
 

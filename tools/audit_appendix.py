@@ -136,11 +136,53 @@ for ds in ("waterbirds", "celeba"):
                 continue
             dev = max([dev] + [abs(v - vals[0]) for v in vals[1:] if v is not None])
 prose = io.open(f"{D}/sn-article.tex", encoding="utf-8").read()
-stated = float(re.search(r"by more than\s+\$(\d\.\d+)\$",
+# Anchored on the sentence itself: an unanchored "by more than $x$" matched the first such phrase in
+# the paper, which after a later edit was a different claim in Section 5.5.
+stated = float(re.search(r"departs from its \$\\rhotest=0\.95\$ value by more than\s+\$(\d\.\d+)\$",
                          re.sub(r"\s+", " ", prose)).group(1))
 print(f"tertulis {stated:.3f}, dihitung {dev:.3f}")
 if abs(stated - dev) > 0.0006:
     bad.append(f"  sweep: batas tertulis {stated:.3f}, dihitung {dev:.3f}")
+
+# ---------------------------------------------------------------- how tight the KS bound is
+# Section 5.1 quotes the shortfall as a fraction of its bound, per dataset. An audit called these
+# ranges wrong after rebuilding them from three different tables -- the per-group table's re-run,
+# the divergence table's method average, and a constant pi taken from the ERM row -- which is not
+# the population the figure uses. Recompute them the way the figure does: keep the paired runs,
+# average coverage, D_KS and pi per setting, then take the ratio.
+print("=== ketatnya batas KS ===", end=" ")
+paired = defaultdict(dict)
+for r in csv.DictReader(open(f"{R}/calibration_ablation_4bb.csv")):
+    if r["score"] == "APS" and r["rho_test"] == "0.95" and r["gate_status"] == "kept":
+        paired[(r["backbone"], r["dataset"], r["method"],
+                r["train_seed"], r["split_seed"])][r["calibration"]] = r
+cells = defaultdict(list)
+for d in paired.values():
+    if "marginal_split" in d and "mondrian" in d:
+        m = d["marginal_split"]
+        cells[(m["dataset"], m["backbone"])].append(
+            (float(m["worst_group_cov"]), float(m["div_ks_stat"]),
+             int(m["n_cal_worst_group"]) / int(m["n_eval"])))
+ratio, nviol = defaultdict(list), 0
+for (ds, bb), v in cells.items():
+    cov, kstat, pi_ = np.array(v).mean(axis=0)
+    short_, bound_ = 0.90 - cov, (1 - pi_) * kstat
+    nviol += short_ > bound_ + 1e-9
+    ratio[ds].append(short_ / bound_)
+got = re.search(r"shortfall reaches \$(\d\.\d+)\$--\$(\d\.\d+)\$ of the bound on Waterbirds "
+                r"but only \$(\d\.\d+)\$--\$(\d\.\d+)\$ on CelebA", re.sub(r"\s+", " ", prose))
+want = [min(ratio["waterbirds"]), max(ratio["waterbirds"]),
+        min(ratio["celeba"]), max(ratio["celeba"])]
+print(f"tertulis {got and got.groups()}, dihitung {[f'{x:.3f}' for x in want]}, "
+      f"{nviol} pelanggaran")
+if got is None:
+    bad.append("  ketat: kalimat rentang di 5.1 tidak ditemukan")
+else:
+    for g, w, lab in zip(got.groups(), want, ("WB min", "WB max", "CelebA min", "CelebA max")):
+        if abs(float(g) - round(w, 2)) > 0.0051:
+            bad.append(f"  ketat: {lab} tertulis {g}, dihitung {w:.3f}")
+if nviol:
+    bad.append(f"  ketat: {nviol} setting melanggar batas; 5.1 mengklaim tidak ada")
 
 # ---------------------------------------------------------------- per-group coverage + disparity
 # tab:pergroupcov lives in the manuscript rather than the generated file, and it now carries the
@@ -255,6 +297,67 @@ for ds, c in _rows:
               f"{_cur}/{ds}/{sc} {cond}")
     au = [r for r in pg if r["backbone"] == NAME[_cur] and r["dataset"] == ds]
     check("pgfull", num(c[2 + len(COND)]), mean(au, "probe_auroc"), f"{_cur}/{ds} AUROC")
+
+# ---------------------------------------------------------------- body Tables 5 and 6
+# These two come from the five-seed main grid, not the three-seed calibration ablation behind the
+# appendix, and nothing checked them. Both ERM columns of Table 5 reproduce from either file --
+# ERM and AFR are fitted with L-BFGS, whose solver ignores the seed, so their means are identical
+# over three seeds or five -- which is exactly why reading them from the ablation looks right until
+# the robust ranges are checked. Two sessions have now spent time on that; this ends it.
+grid = [r for r in csv.DictReader(open(f"{R}/grid_records.csv"))
+        if r["score"] == "APS" and r["rho_test"] == "0.95"
+        and r["calibration"] == "marginal_split" and r["gate_status"] != "excluded"]
+assert {r["train_seed"] for r in grid} == {"0", "1", "2", "3", "4"}, "grid bukan lima seed"
+ROB = ["dfr", "afr", "balanced_subsample", "groupdro_ll"]
+
+
+def _blk(label, src):
+    # anchor on the \label, not on the first \ref of the same name earlier in the prose
+    i = src.index("\\label{" + label + "}")
+    return src[src.rindex(r"\begin{table}", 0, i):src.index(r"\end{table}", i)]
+
+
+print("=== Tabel 5 (tab:h1) ===", end=" ")
+rows5 = datarows(_blk("tab:h1", prose))
+print(f"{len(rows5)} baris")
+for ds, c in rows5:
+    bb = NAME[c[0].replace("$^{\\dagger}$", "").strip()]
+    base = [r for r in grid if r["dataset"] == ds and r["backbone"] == bb]
+    if num(c[1]) is not None:
+        e = [r for r in base if r["method"] == "erm"]
+        check("T5", num(c[1]), mean(e, "div_wasserstein1"), f"{c[0]}/{ds} D_ERM")
+        check("T5", num(c[2]), mean(e, "base_top1"), f"{c[0]}/{ds} acc_ERM")
+    dv = [mean([r for r in base if r["method"] == m_], "div_wasserstein1") for m_ in ROB]
+    av = [mean([r for r in base if r["method"] == m_], "base_top1") for m_ in ROB]
+    dv = [x for x in dv if x is not None]
+    av = [x for x in av if x is not None]
+    for col, lo, hi in ((3, min(dv), max(dv)), (4, min(av), max(av))):
+        got = re.findall(r"(\d\.\d+)", c[col])
+        if len(got) != 2:
+            bad.append(f"  T5 {c[0]}/{ds} kolom {col}: tidak terbaca sebagai rentang")
+            continue
+        check("T5", float(got[0]), lo, f"{c[0]}/{ds} kolom {col} min")
+        check("T5", float(got[1]), hi, f"{c[0]}/{ds} kolom {col} max")
+
+print("=== Tabel 6 (tab:h2) ===", end=" ")
+MINV = {v: k for k, v in MNAME.items()}
+rows6 = datarows(_blk("tab:h2", prose))
+print(f"{len(rows6)} baris")
+for ds, c in rows6:
+    bb = NAME[c[0]]
+    base = [r for r in grid if r["dataset"] == ds and r["backbone"] == bb]
+    accs = {m_: mean([r for r in base if r["method"] == m_], "worst_group_acc")
+            for m_ in MNAME.values()}
+    accs = {k: v for k, v in accs.items() if v is not None}
+    gaps = {k: 0.90 - mean([r for r in base if r["method"] == k], "worst_group_cov")
+            for k in accs}
+    ab, sb = max(accs, key=accs.get), min(gaps, key=gaps.get)
+    for got, want, lab in ((c[1], MINV[ab], "acc-best"), (c[4], MINV[sb], "shortfall-best")):
+        if got.replace("\\ ", " ") != want.replace("\\ ", " "):
+            bad.append(f"  T6 {c[0]}/{ds} {lab}: tertulis {got}, dihitung {want}")
+    check("T6", num(c[2]), accs[ab], f"{c[0]}/{ds} wg acc")
+    check("T6", num(c[3]), gaps[ab], f"{c[0]}/{ds} covgap acc-best")
+    check("T6", num(c[5]), gaps[sb], f"{c[0]}/{ds} covgap shortfall-best")
 
 # ---------------------------------------------------------------- cross-score spread
 # This table now carries the claim the RAPS grid used to, so its 48 cells are verified too.

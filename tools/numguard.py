@@ -18,8 +18,10 @@ import sys
 from collections import Counter
 
 P = r"c:\jagr\vgscp\ACML_Journal___Robust_CP_Train_Study (1)\sn-article.tex"
-SNAP = (r"C:\Users\jayan\AppData\Local\Temp\claude\c--jagr-vgscp"
-        r"\9ec1a810-3e09-41f2-b79c-798a80d2e27c\scratchpad\numguard.json")
+# The baseline lived in a temp scratchpad belonging to a session that had already ended, so it
+# could be swept away at any point and the guard would silently have nothing to compare against.
+# It belongs beside the tool, in the repository, where git records when it was last refreshed.
+SNAP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "numguard.json")
 
 
 def state():

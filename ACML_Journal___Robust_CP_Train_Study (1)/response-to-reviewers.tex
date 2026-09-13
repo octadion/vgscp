@@ -70,7 +70,7 @@ its own; the wording is otherwise unchanged.
 
 The revision rests on new experiments: a grid over four backbones, a calibration ablation across
 three calibration rules, a predicted-group study, and an end-to-end fine-tuning study in which the
-representation itself is retrained. Every table in the paper comes from these.
+representation itself is retrained. Every table of our own results comes from these.
 
 \section*{Summary of the principal changes}
 
@@ -115,7 +115,7 @@ citation added. & R1.3, R1.5, R2.6 \\
 \bottomrule
 \end{longtable}
 
-The revised manuscript runs to 36 pages against the 20 at submission, most of the growth being the
+The revised manuscript runs to 35 pages against the 20 at submission, most of the growth being the
 appendix tables the reviews asked for. We are glad to shorten further if the editorial office
 requires it.
 
@@ -144,18 +144,19 @@ four noisy per-group coverages sits $0.018$--$0.045$ below that mean, which is w
 \end{revised}
 
 Appendix~C additionally simulates an \emph{exactly valid} Mondrian procedure with no model and no
-data, and a new figure puts our runs against that law directly:
+data, and a new figure puts our evaluations against that law directly:
 
 \begin{revised}
 Simulated at our own per-group counts, an exactly valid procedure puts the minimum at
-$0.8695$ on Waterbirds and $0.8847$ on CelebA; we observe $0.8660$ and $0.8800$, with $98\%$ and
-$95\%$ of runs inside the simulated central range.
+$0.8702$ on Waterbirds and $0.8847$ on CelebA; we observe $0.8660$ and $0.8800$, with $96.5\%$ and
+$95.1\%$ of evaluations inside the simulated central range.
 \end{revised}
 
 The two effects are worth separating. The closed-form $1.03\,\sigma$ figure covers only the
-min-over-$k$ selection effect and predicts $0.013$--$0.030$ against an observed $0.018$--$0.045$,
-so on its own it accounts for the level's direction and order of magnitude but not every point of
-it. Simulating the full Mondrian law additionally captures the second effect --- each threshold is
+min-over-$k$ selection effect and, with $\sigma$ the per-group coverage standard deviation across
+training seeds and calibration splits, predicts $0.018$--$0.036$ against an observed
+$0.018$--$0.045$, so on its own it accounts for the level's direction and most of its size but not
+all of it. Simulating the full Mondrian law additionally captures the second effect --- each threshold is
 estimated from that group's own small calibration sample --- and the residual is then
 $0.004$--$0.005$ of coverage. We report that residual rather than claim an exact match.
 
@@ -173,7 +174,8 @@ We have done both. This was the most substantial change to the paper.
 discussion, conclusion and related work (narrowing); Section~3 (terminology).}
 
 We fine-tune the backbone \textbf{end-to-end} under three objectives --- plain ERM, GroupDRO and
-group reweighting --- with five fine-tuning seeds each, holding the head fixed at plain ERM so the
+group reweighting --- with five fine-tuning seeds each on Waterbirds and three on CelebA, holding
+the head fixed at plain ERM so the
 representation is the only thing that moves. The section opens with a \textbf{manipulation check},
 because a representation-level experiment answers nothing unless the intervention actually moved
 the representation:
@@ -198,9 +200,9 @@ same absolute claim through the rest of the paper and softened it in fifteen fur
 softening only the title would not have answered the objection.
 
 We also corrected a terminological conflation the reviewer's question exposed: the submitted paper
-used ``representation'' for the frozen backbone, which it never varied. Throughout the revision,
-\textbf{backbone} means the frozen feature extractor, \textbf{representation} means what the
-fine-tuning study changes, and \textbf{head} means the last-layer classifier.
+used ``representation'' for the frozen backbone, which it never varied. The revision uses
+\textbf{backbone} for the feature extractor and \textbf{head} for the last-layer classifier, and the
+experiment that changes the representation itself is the fine-tuning study.
 
 \rpoint{R1.3}{only two backbones; compare more clearly with related work}
 
@@ -221,11 +223,13 @@ Mondrian cross-training spread never exceeds $0.024$ in any setting.
 
 \textbf{Literature comparison.} The comparison is unflattering and we present it as such --- on Waterbirds our ResNet-50 runs sit $12$--$26$ points below published worst-group
 accuracies, and the gap varies by method rather than being uniform --- and
-we state the three protocol differences that explain it: our runs refit only the last layer on
-cached features (where the published GroupDRO and AFR train the network), our ResNet-50 uses a
-deliberately light recipe and a $30{,}000$-image CelebA training subsample, and worst-group
-accuracy is read on our pooled evaluation domain rather than the benchmark test split. DFR, the one method whose protocol matches its published counterpart, is correspondingly the closest ($0.851$
-against $0.883$ on CelebA).
+we state the two protocol differences that explain it: our runs refit only the last layer on
+features from a deliberately light recipe, where the published GroupDRO numbers come from training
+the network end-to-end and the published DFR and AFR numbers retrain a last layer on a stronger
+base model, and worst-group
+accuracy is read on our pooled evaluation domain rather than the benchmark test split. DFR comes
+closest ($0.851$ against $0.883$ on CelebA) and AFR furthest, since AFR reweights the base model's
+own errors and ours comes from the lighter recipe.
 
 We also explain why this does not bear on the paper's claims: every result is a
 \textbf{within-setting} contrast computed on the same posteriors, so a weaker backbone lowers all methods in a setting together and leaves the calibration contrast intact. The four backbones span a
@@ -238,25 +242,23 @@ $0.20$--$0.95$ range of worst-group accuracy and the dissociation is unchanged a
 and stability of the reported results.''
 \end{reviewer}
 
-\where{Section~4, new paragraph; Table~2 (intervals over seeds); Table~B7 (seed-versus-split variance); Appendix~F (seed sets).}
+\where{Section~4, new paragraph; Table~2 (intervals over seeds and splits); Table~B7 (seed-versus-split variance); Appendix~F (seed sets).}
 
-The main grid and the end-to-end fine-tuning study now run \textbf{five} training seeds; the
-calibration-policy ablation runs three, and the manuscript states the design as $\ge 3$ training
-seeds $\times \ge 10$ calibration splits rather than quoting a single figure that would not hold
-everywhere. In raising the count we found something we must disclose, because presenting it as
+The main grid runs \textbf{five} training seeds, as does the fine-tuning study on Waterbirds,
+while the fine-tuning study on CelebA runs three; the
+calibration-policy ablation runs three, and the manuscript states each count where it applies
+rather than one figure that would not hold everywhere. In raising the count we found something we must disclose, because presenting it as
 stability would be misleading: \textbf{two of the five training methods are deterministic.} ERM and AFR fit with
 L-BFGS, whose solver ignores the random seed, so their across-seed standard deviation is exactly
 $0.000$ and their base accuracy is identical to five decimals in every setting.
 
 \begin{revised}
 Extra seeds therefore add replicates for DFR, balanced subsampling and GroupDRO-LL
-(across-seed SD $0.003$--$0.027$ in worst-group accuracy) and none for ERM or AFR. This is also why
-every interval here is a cluster bootstrap that resamples training seeds and then calibration
-splits within them: the ten splits inside a seed share one trained model.
+(across-seed SD up to $0.027$ in worst-group accuracy) and none for ERM or AFR, whose SD is exactly
+zero in every setting. This is also why every interval here, apart from the correlation intervals,
+is a cluster bootstrap that resamples training seeds and then calibration splits within them: the
+ten splits inside a seed share one trained model.
 \end{revised}
-
-This is also why every interval in the revision is a cluster bootstrap resampling seeds and then
-splits within them: the calibration splits inside a seed share one trained model.
 
 \rpoint{R1.5}{add the requested reference}
 
@@ -322,26 +324,26 @@ $W_1$ admits no such bound: the gap can concentrate on a vanishing interval, sen
 to zero while the shortfall stays fixed. We therefore use $W_1$ only as a descriptive summary, its
 role in Gao et al.\ (2026). Neither divergence orders coverage across models without assuming the
 same group is worst in each, and we do not assume it: the shortfall identity and the KS bound are
-applied run by run to whichever group is in fact worst. The assumption is a good approximation for
-the ERM baseline under a shared threshold, where one group is the worst in $85$--$100\%$ of runs,
-and a poor one under per-group thresholds, where no group holds the minimum in more than $41\%$ of
-runs and the most concentrated setting is closer to the $25\%$ of a four-way tie than to the
+applied evaluation by evaluation to whichever group is in fact worst. The assumption is a good approximation for
+the ERM baseline under a shared threshold, where one group is the worst in $85$--$100\%$ of
+evaluations, and a poor one under per-group thresholds, where no group holds the minimum in more
+than $41\%$ of evaluations and the most concentrated setting is closer to the $25\%$ of a four-way tie than to the
 shared-threshold figure.
 \end{revised}
 
 \textbf{A correction we owe this comment.} An earlier draft of the remark asserted that the
 required stochastic ordering ``holds here by construction''. Checking it against our own records
 before writing this reply, it does not: the realised worst group moves with the training method in
-all eight settings, and under per-group thresholds it is near a four-way tie. Nothing in the paper
+six of the eight settings, and under per-group thresholds it is near a four-way tie. Nothing in the paper
 needed the assumption --- the identity and the bound hold for whichever group is worst in a given
-run --- so the claim has been withdrawn rather than repaired, and Appendix~A now reports where the
+evaluation --- so the claim has been withdrawn rather than repaired, and Appendix~A now reports where the
 worst group actually lands (Table~A1). This is the reviewer's point confirmed rather than answered
 away: divergence alone does not order coverage, and we no longer suggest that it does here.
 
 A second, related premise also failed a check and has been corrected. The paper described
 the group that comes out worst as the minority group the spurious correlation disadvantages. That
 holds on Waterbirds, where it carries $2.5\%$ of the calibration set. On CelebA it does not:
-compositing to $\rhocal=0.95$ leaves that group holding $47.5\%$, so the shortfall there is not the
+compositing to $\rho_{\mathrm{cal}}=0.95$ leaves that group holding $47.5\%$, so the shortfall there is not the
 small-$\pi$ effect the identity's second factor describes. Section~3 now scopes the mechanism to
 the dataset it fits, Appendix~A reports the calibration share alongside the group index, and the
 bound in Figure~2 is computed from the realised group prior rather than a single constant. The
@@ -366,7 +368,7 @@ founded than we realised.
 \textbf{What we found.} The submitted analysis pooled each method's (accuracy, divergence) points
 across seeds \emph{and} calibration splits. Measured separately, ERM's per-seed base accuracy is
 identical to five decimals in every setting --- its solver is deterministic --- while its across-split
-range is $0.02$--$0.03$. So the entire accuracy axis ERM contributed was \emph{which evaluation rows
+range is $0.008$--$0.026$ on Waterbirds and $0.036$--$0.059$ on CelebA. So the entire accuracy axis ERM contributed was \emph{which evaluation rows
 were drawn}, not \emph{which model was trained}. Matching on it compares ERM on unlucky draws
 against a robust method on lucky ones. The accompanying bootstrap over pooled points also treated
 nested rows as independent draws, which is exactly the hierarchical-uncertainty problem the reviewer
@@ -377,9 +379,9 @@ cluster bootstrap that resamples seeds and then splits within them. ERM's accura
 single \textbf{point}, and overlapping support exists in \textbf{one of the eight settings}:
 GroupDRO-LL on ResNet-50/Waterbirds, whose per-seed accuracies bracket ERM's $0.9399$. There the
 reduction is real and \textbf{replicates} the earlier estimate ---
-$\Delta_{\mathrm{APS}} = +0.084\,[+0.076, +0.095]$,
-$\Delta_{\mathrm{RAPS}} = +0.084\,[+0.074, +0.094]$,
-$\Delta_{\mathrm{THR}} = +0.150\,[+0.146, +0.158]$.
+$\Delta_{\mathrm{APS}} = +0.084\,[+0.064, +0.101]$,
+$\Delta_{\mathrm{RAPS}} = +0.084\,[+0.063, +0.101]$,
+$\Delta_{\mathrm{THR}} = +0.150\,[+0.129, +0.168]$.
 
 \textbf{What we withdraw.} The two other matched values in Table~3 of the submitted paper --- GroupDRO-LL on
 CLIP/Waterbirds ($+0.100$) and balanced subsampling on ResNet-50/Waterbirds ($+0.059$) --- rested on
@@ -412,8 +414,10 @@ the distinction stated.
 
 \textbf{Sensitivity analysis.} Every excluded run was evaluated and its records retained, so
 this needed no re-run. The two kinds of exclusion are now reported separately, because they are
-different questions. The three individual seeds all sit in one setting whose across-method spread
-is $0.003$, so restoring them could not have moved the maximum of $0.024$, and does not. The
+different questions. Of the three individual seeds, only GroupDRO-LL seed 1 lies in the three-seed
+calibration comparison where per-group thresholds are evaluated, and restoring it moves its
+setting's spread from $0.0034$ to $0.0036$, far below the maximum of $0.024$; the other two belong
+to the five-seed grid, which uses one shared threshold. The
 appendix reports that as arithmetic rather than as evidence. Restoring the whole excluded
 methods is the real test, and the dissociation survives it: the Mondrian cross-training spread
 rises only to $0.028$ against $0.024$. \textbf{One thing does change, and we report it against
@@ -428,9 +432,10 @@ flag.
 hyperparameter we chose would be unfair, we investigated. The mechanism is a class-prior inversion:
 at the default $\gamma=2$ the reweighting drives the head to predict the positive class for
 $\approx 86\%$ of examples where the true rate is $\approx 15\%$, so a \emph{majority} group becomes
-the worst group. We then computed an \textbf{oracle upper bound} --- the best $\gamma$ chosen with
-knowledge of the evaluation set, which no selection rule could beat --- of $0.327$, $0.427$, $0.445$
-and $0.477$ across the four CelebA backbones, all far below the $0.75$ floor. AFR's exclusion is a
+the worst group. We then computed an \textbf{oracle upper bound} --- the best $\gamma$ in $\{0.5,1,2,4\}$ chosen
+with knowledge of the evaluation set, which no selection rule over that grid could beat --- of
+$0.327$, $0.427$, $0.445$ and $0.477$ across the four CelebA backbones, all far below the $0.75$
+floor. AFR's exclusion is a
 property of the method in this regime, not of our choice of $\gamma$.
 
 \rpoint{R2.5}{shift and predicted-group deployment claims}
@@ -446,7 +451,7 @@ implications of inferring the CelebA \emph{Male} attribute.''
 All five requests implemented.
 
 \where{Section~5.5 throughout ($\rho$-sweep scoping; mechanics, supervision, probe error);
-Section~6 and the ethics statement (privacy).}
+Section~5.5, paragraph ``Ethical scope'', and the Declarations (privacy).}
 
 \textbf{$\rho$-sweep scoping.} The reviewer's reading is correct.
 
@@ -456,6 +461,11 @@ class-conditional feature distribution within each of the four groups is untouch
 a group-prior shift, a special case of label-and-attribute shift, and \emph{not} a general covariate
 shift \ldots Our stability claim is scoped accordingly.
 \end{revised}
+
+We also now state a property of the sweep that the submitted paper did not. On CelebA the raw data
+associate blond hair with being female, so compositing to $\rho=0.95$ builds the reverse
+association, and lowering $\rho_{\mathrm{test}}$ there moves the evaluation distribution toward the
+raw data (Section~4).
 
 \textbf{Mechanics.} The label is never predicted; only the attribute is. The stratum is
 $\hat g = 2y + \hat a$; calibration points are binned by $\hat g$, each bin's
@@ -474,14 +484,14 @@ threshold and under-covered, while the reverse error only wastes efficiency. We 
 probe accuracy predicts the penalty and it does \textbf{not} --- the setting with the lowest AUROC
 ($0.945$) has no failures, while a setting at AUROC $0.999$ has one. What travels with the penalty is
 the method's own group-dependence: the largest failure is ERM's and the next is
-GroupDRO-LL's. We say so rather than offer AUROC
-as a sufficient diagnostic.
+GroupDRO-LL's. The probe's AUROC is necessary alongside any such claim, but not sufficient.
 
 \textbf{Privacy and ethics.} Written as a constraint on use rather than a disclaimer. Two points are
 stated plainly: CelebA's \emph{Male} field is a third-party binary annotation and \textbf{not
 self-identified gender}, so a study that treats it as gender has erred before any ethical question
 arises; and inferring such an attribute at test time assigns a sensitive label to someone who has
-not provided it, wrongly for $2$--$5\%$ of people even at the AUROC we measure. The recommendation
+not provided it, and for some of them the label it assigns is the wrong one, even at the AUROC we
+measure. The recommendation
 is scoped to settings where the attribute is already lawfully held, or where the inference stays
 inside an audit an operator runs on their own system, and it is explicitly ruled out where the
 inferred label would be stored, disclosed, or used to route individual outcomes. We note that
@@ -503,10 +513,11 @@ contradicts them.
 
 \begin{enumerate}[leftmargin=1.4em,itemsep=0.35em]
 \item The per-setting accuracy--set-size correlation, reported bare in the submitted version, is
-\textbf{uninformative in five of eight settings} once a cluster-bootstrap CI is attached --- each rests
-on only three to five methods. We now report a \emph{direction}, not an estimate.
+\textbf{uninformative in six of eight settings} once a bootstrap CI over those methods is
+attached --- each rests on only three to five methods, and with three a bootstrap interval is
+uninformative however narrow it looks. We now report a \emph{direction}, not an estimate.
 \item ``The absolute efficiency range is narrow'' is \textbf{withdrawn}. The spread runs $0.036$ to
-$0.364$, and a two-one-sided-test equivalence check rejects equivalence at a $0.10$ margin in six of
+$0.364$, and an equivalence check leaves the spread above a $0.10$ margin in six of
 eight settings.
 \item ``Training buys efficiency, not coverage'' is now stated as \textbf{conditional on Mondrian}:
 under marginal calibration training still moves coverage, so it is not a general claim.
@@ -530,10 +541,11 @@ cluster-bootstrap interval in only one, by $0.014$ of coverage.
 \textbf{Reproducibility.} Appendix~F now gives the exact calibration/test construction --- disjoint
 reservoirs from a seeded permutation, resampled within their own group indices, truncated to a
 common size, realised $\rho$ logged per draw, separate uniform streams for the randomised scores ---
-the per-group counts for both datasets, every head hyperparameter including the fine-tuning
-optimisers, the shift-robust threshold in closed form, the seed sets, and the measured run times. We
-also report that the worst group's Mondrian calibration count never falls below $50$ (minimum $66$
-on Waterbirds, $373$ on CelebA), so the pooled-quantile fallback is never triggered by these runs.
+the per-group counts for both datasets, every head hyperparameter, the training recipe of the
+ResNet-50 backbone, the fine-tuning optimisers and epoch budgets, the shift-robust threshold in
+closed form, the seed sets, and the measured run times. We
+also report the per-group calibration counts, whose smallest values are $66$ on Waterbirds and
+$373$ on CelebA, so every Mondrian threshold rests on at least that many scores.
 
 \textbf{Archival code.} A DOI will be minted from a tagged release and inserted before publication;
 the manuscript currently carries a visible placeholder rather than a provisional link.
@@ -551,30 +563,29 @@ claim and provide stronger statistical tests, such as confidence intervals or eq
 
 We agree on all three counts.
 
-\where{Title, Section~5.1 heading and fifteen further places (narrowing); Table~2 and all
-main tables (CIs); Table~2 and Section~5.1 (equivalence test on coverage); Section~5.3 (equivalence
+\where{Title, Section~5.1 heading and fifteen further places (narrowing); Tables~2, 4
+and 6 (CIs); Table~2 and Section~5.1 (equivalence test on coverage); Section~5.3 (equivalence
 test on set size); Section~5.1 and Appendix~C (sub-target level).}
 
 \textbf{Narrowed.} The title is now comparative, and the same softening was applied throughout
 rather than to the title alone. Section~5.1's heading, for instance, has changed from ``Coverage Is
-a Calibration Property, Not a Representation One'' to ``The Calibration Rule Moves Coverage
-More Than Training Does''.
+a Calibration Property, Not a Representation One'' to ``Calibration Rule versus Training Method''.
 
 \textbf{Confidence intervals.} The estimates that carry the paper's claims now come with a
-two-stage cluster bootstrap interval that resamples training seeds and then calibration splits
-within them: Tables~2, 4 and 6. Tables~3, 5 and 7 remain point estimates and are labelled as such --- Table~3's across-seed spread is given separately in Appendix~B, Table~5 reports
+bootstrap interval: Tables~2 and 6 resample training seeds and then the calibration splits within
+them, and Table~4's correlation interval resamples the methods the correlation is computed over. Tables~3, 5 and 7 remain point estimates and are labelled as such --- Table~3's across-seed spread is given separately in Appendix~B, Table~5 reports
 accuracy \emph{supports} rather than a single estimate, and Table~7 reports a median and a maximum.
 The important addition is Table~2, which carries the central claim and previously had neither
 intervals nor a test: its ERM lift and its across-method spread are both reported with intervals, and every lift
 interval excludes zero.
 
 \textbf{Equivalence tests.} Two, on the two different claims. On \emph{coverage}, which is what this
-comment is about: a two-one-sided-test check of whether the across-method spread under per-group
-thresholds is equivalent to zero within a $0.05$ margin, which we chose after seeing the
-spreads and state as post-hoc in the table caption. It is, in all eight settings --- the
+comment is about: an equivalence check that asks whether the upper end of a one-sided bootstrap
+interval for the across-method spread under per-group thresholds falls below a $0.05$ margin, which
+we chose after seeing the spreads and state as post-hoc in Section~5.1. It is, in all eight settings --- the
 training method stops mattering once calibration is group-conditional. On \emph{set size}, the
-same check against a $0.10$ margin \textbf{rejects} equivalence in six of eight settings, which is
-why we withdrew the description of the efficiency range as narrow.
+same check against a $0.10$ margin does \textbf{not} establish equivalence in six of eight
+settings, which is why we withdrew the description of the efficiency range as narrow.
 
 \textbf{Mondrian not reaching target.} Addressed as under R1.1: the mean over groups is $0.9024$
 against a nominal $0.900$, so the sub-target \emph{minimum} is a min-over-groups selection effect.
@@ -593,34 +604,23 @@ significance or uncertainty for the reported correlations.''
 
 Both implemented, and the reviewer's concern proved larger than stated.
 
-\where{Abstract, introduction, Section~5.3 and the discussion (conditioning); Table~4
-(intervals).}
+\where{Abstract, introduction, Section~5.3, the discussion and the conclusion (conditioning);
+Table~4 (intervals).}
 
-The claim is now \textbf{explicitly conditional on Mondrian}. And with cluster-bootstrap intervals,
-the correlation is uninformative not in one of four settings but in \textbf{five of eight} ---
-including the $-0.97$ and $-1.00$ we previously highlighted, which at $n=4$ methods are not evidence
-of a deterministic relationship. Table~4 now prints each interval, italicised where it spans
-essentially $[-1, +1]$, and the text reports a direction rather than an estimate.
+The claim is now \textbf{explicitly conditional on Mondrian}. And with bootstrap intervals over the
+methods, the correlation is uninformative not in one of four settings but in \textbf{six of eight}
+--- including the $-0.97$ and $-1.00$ we previously highlighted, which at $n=4$ methods are not
+evidence of a deterministic relationship, and a setting with only three methods, where a bootstrap
+interval says nothing however narrow it is. Table~4 now prints each interval, italicised where it
+spans essentially $[-1, +1]$ or rests on three methods, and the text reports a direction rather
+than an estimate.
 
 \section*{Further corrections}
 
-Three defects we found ourselves while revising. No review raised them, and we list them here so
-that none is a silent change.
-
-\begin{enumerate}[leftmargin=1.4em,itemsep=0.35em]
-\item \textbf{A definitional inconsistency in Section~3.} The coverage gap was defined in a way
-that contradicted both the implementation and the submitted paper's own appendix. It now reads
+One substantive change to the submitted paper that no review asked for, listed here so that it is
+not a silent alteration. \textbf{The coverage gap was defined inconsistently in Section~3},
+contradicting both the implementation and the submitted paper's own appendix. It now reads
 $(1-\alpha) - \min_g \mathrm{cov}_g$, matching both.
-\item \textbf{A rendering defect in the predicted-group table.} It declared eight columns and
-supplied seven, leaving a stray empty column. Fixed during the rewrite; all
-eighteen tables now pass a column-count check, none has a column that is blank in every row, and
-each was measured against the text block so none runs into the margin.
-\item \textbf{An empty-set disclosure.} On DINOv2/Waterbirds the mean worst-group set size is
-\emph{below one} ($0.888$--$0.962$ across methods and scores), meaning a small fraction
-of prediction sets are empty. This is a legitimate outcome of standard split conformal with a highly accurate model, and
-coverage there remains valid, but a reader expecting sets of size $\ge 1$ would otherwise be
-confused. We report it rather than clipping sets to a minimum of one, which would hide it.
-\end{enumerate}
 
 \vspace{0.4em}
 \noindent\textcolor{rulegrey}{\rule{\textwidth}{1pt}}

@@ -67,3 +67,6 @@ _backup_*.zip
 *.blg
 *.fdb_latexmk
 *.fls
+
+# ACML 2025 journal-track accepted papers: reference reading only, not part of this work
+acml-journal-2025-acceptedpapers/

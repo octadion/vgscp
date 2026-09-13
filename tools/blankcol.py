@@ -13,7 +13,7 @@ for fn in ("sn-article.tex", "appendix-tables.tex"):
         env = m.group(1); i, d = m.end(), 1
         while d:
             d += {"{": 1, "}": -1}.get(s[i], 0); i += 1
-        body = s[i:s.index(f"\end{{{env}}}", i)]
+        body = s[i:s.index(rf"\end{{{env}}}", i)]
         lab = re.findall(r"\label\{(tab:[^}]+)\}", s[max(0, m.start()-1200):m.start()] + body[:900])
         lab = lab[-1] if lab else "?"
         rows = [r.strip() for r in body.split("\\\\")

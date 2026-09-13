@@ -1,5 +1,10 @@
 """§5 confound control — ACCURACY-MATCHED cross-group divergence (the H1 readout).
 
+SUPERSEDED for the paper. This module pools every (seed, split) point, which is the procedure the
+revision withdraws (Appendix F, "Matching level"). The numbers in Section 5.4 come from
+``interval_tables.model_level_delta``, which matches at model level, one point per training seed,
+with a two-stage cluster bootstrap. The module is kept as the record of what the submitted paper did.
+
 A more accurate model has different score distributions, so a RAW divergence reduction can be
 pure accuracy, not reduced heterogeneity (the Phase-0 trap). The H1 verdict is therefore on the
 ACCURACY-MATCHED divergence, never the raw one.

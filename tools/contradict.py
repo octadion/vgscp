@@ -42,7 +42,7 @@ forbid(r"the minority group the spurious correlation disadvantages---waterbird-o
        "g3 CelebA memegang 47.5% himpunan kalibrasi; bukan minoritas grup")
 
 print("=== reproduksi ulang: 2.400 run vs 36 AFR ===")
-require(r"all but \$36\$ of the \$2\{,\}400\$ runs",
+require(r"all but \$36\$ of the \$2\{,\}400\$ evaluations",
         "klaim reproduksi harus mengecualikan 36 run AFR")
 forbid(r"reproduces the published worst-group coverage exactly on all \$2\{,\}400\$ runs",
        "bertentangan dengan catatan AFR di Appendix F")
@@ -76,13 +76,33 @@ print(f"  manuskrip: {n_tab} tabel, {n_body} di badan, {n_tab - n_body} di appen
 # The counts are spelled out in the companions, so the pattern is built from the count the
 # manuscript actually has rather than from a number typed here.
 WORD = {18: "eighteen", 19: "nineteen", 20: "twenty", 21: "twenty-one", 22: "twenty-two"}
-for f, pat, got in (("response-to-reviewers.tex",
-                     rf"{WORD.get(n_tab, n_tab)} tables", True),
-                    ("before-after.tex", rf"& 6 & {n_tab} &", True),
+for f, pat, got in (("before-after.tex", rf"& 6 & {n_tab} &", True),
                     ("before-after.tex",
                      rf"{n_body} in the body, {n_tab - n_body} in the appendix", True)):
     if not re.search(pat, re.sub(r"\s+", " ", DOCS[f])):
         bad.append(f"  [{f}] hitungan tabel tidak cocok dengan {n_tab} ({n_body} badan)")
+
+# The letter has no reason to state a table count -- before-after.tex is the inventory document --
+# so this is conditional: a count is only wrong if one is written. Requiring the phrase outright
+# failed the moment a paragraph that happened to carry it was cut for unrelated reasons.
+NUMWORD = (r"\d+|" + "|".join(WORD.values()) + r"|nine|ten|eleven|twelve|thirteen|fourteen"
+           r"|fifteen|sixteen|seventeen|twenty-one|twenty-three|twenty-four")
+for f in ("response-to-reviewers.tex", "before-after.tex"):
+    flat = re.sub(r"\s+", " ", DOCS[f])
+    for m in re.finditer(rf"\b(?:[Aa]ll )?({NUMWORD}) tables\b", flat):
+        if m.group(1) not in (WORD.get(n_tab, ""), str(n_tab)):
+            bad.append(f"  [{f}] '{m.group(0)}' -- manuskrip punya {n_tab} tabel")
+
+# Matching three phrasings by hand missed a fourth -- "it now carries 15 of the paper's 22 tables"
+# -- which contradicted this document's own inventory three paragraphs earlier and survived every
+# check. So read every claim of the shape "<a> of the paper's <b> tables" and test the pair.
+for f in ("response-to-reviewers.tex", "before-after.tex"):
+    flat = re.sub(r"\s+", " ", DOCS[f])
+    for m in re.finditer(r"\$?(\d+)\$? of the paper's \$?(\d+)\$? tables", flat):
+        a, b = int(m.group(1)), int(m.group(2))
+        if (a, b) != (n_tab - n_body, n_tab):
+            bad.append(f"  [{f}] '{m.group(0)}' -- seharusnya "
+                       f"{n_tab - n_body} dari {n_tab}")
 
 print("=== statistik before/after diturunkan dari manuskrip ===")
 # before-after.tex tabulates facts about the manuscript. Three of them went stale the moment the
@@ -97,6 +117,11 @@ if not re.search(rf"Source lines & 1\{{,\}}034 & {n_lines // 1000}\{{,\}}{n_line
     bad.append(f"  [before-after.tex] hitungan baris sumber bukan {n_lines}")
 if not re.search(rf"Numbered equations & 3 & {n_eq} &", ba):
     bad.append(f"  [before-after.tex] hitungan persamaan bernomor bukan {n_eq}")
+# Unique citations too: cutting a paragraph drops the references only it cited.
+n_cite = len({k.strip() for m in re.findall(r"\\cite[a-z]*\{([^}]+)\}", PAPER) for k in m.split(",")})
+print(f"  manuskrip: {n_cite} sitasi unik")
+if not re.search(rf"Unique citations & 25 & {n_cite} &", ba):
+    bad.append(f"  [before-after.tex] hitungan sitasi unik bukan {n_cite}")
 forbid(r"every \(setting, method, score\) number behind the body",
        "grid per-metode tidak dicetak lagi; Appendix B memuat ringkasan, bukan setiap sel",
        where=("before-after.tex", "response-to-reviewers.tex"))
