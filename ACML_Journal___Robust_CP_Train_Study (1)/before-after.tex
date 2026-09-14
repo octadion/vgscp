@@ -135,7 +135,7 @@ Counts extracted from the two versions of the source.
 \toprule
 & \textbf{Submitted} & \textbf{Revised} & \textbf{Note} \\
 \midrule
-Source lines & 1{,}034 & 1{,}559 & $+51\%$, most of it appendix tables \\
+Source lines & 1{,}034 & 1{,}517 & $+47\%$, most of it appendix tables \\
 Tables & 6 & 18 & 7 in the body, 11 in the appendix \\
 Figures & 4 & 7 & all seven regenerated; none carried over \\
 Numbered equations & 3 & 6 & two are in Proposition~1(ii) \\
@@ -279,7 +279,7 @@ The cause of the two retractions is worth stating precisely, because it is the k
 survives review: the submitted analysis pooled each method's (accuracy, divergence) points across
 seeds \emph{and} calibration splits. ERM's solver is deterministic, so its per-seed accuracy is
 identical to five decimals, while its across-split range is $0.008$--$0.026$ on Waterbirds and
-$0.036$--$0.059$ on CelebA. The accuracy axis ERM
+$0.036$--$0.051$ on the CelebA settings it is retained in. The accuracy axis ERM
 appeared to span was therefore \emph{which evaluation rows were drawn}, not \emph{which model was
 trained}, and matching on it compared ERM on unlucky draws against a robust method on lucky ones.
 
@@ -345,7 +345,7 @@ appendix. It now reads $(1-\alpha)-\min_g\mathrm{cov}_g$, matching both (Section
 The central finding is unchanged and now rests on twice the settings and on a study in which the
 representation itself is retrained. Under marginal calibration, worst-group coverage tracks the
 training method and collapses as low as $0.509$; under Mondrian calibration it lands in
-$0.84$--$0.89$ in every setting, and the cross-training spread never exceeds $0.024$. The
+$0.84$--$0.89$ in every setting, and the cross-training spread never exceeds $0.024$, all at APS. The
 dissociation holds across all four backbones, across three conformity scores, across the
 correlation-strength sweep, under predicted rather than true groups, and when the representation is
 fine-tuned end-to-end.

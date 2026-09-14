@@ -154,7 +154,7 @@ $95.1\%$ of evaluations inside the simulated central range.
 
 The two effects are worth separating. The closed-form $1.03\,\sigma$ figure covers only the
 min-over-$k$ selection effect and, with $\sigma$ the per-group coverage standard deviation across
-training seeds and calibration splits, predicts $0.018$--$0.036$ against an observed
+training seeds and calibration splits, predicts $0.016$--$0.036$ against an observed
 $0.018$--$0.045$, so on its own it accounts for the level's direction and most of its size but not
 all of it. Simulating the full Mondrian law additionally captures the second effect --- each threshold is
 estimated from that group's own small calibration sample --- and the residual is then
@@ -219,7 +219,7 @@ pretraining regimes --- an ERM-trained ResNet-50 ($d=2048$), CLIP ViT-B/32 ($512
 contrastive), DINOv2 ViT-B/14 ($768$, self-supervised, never label-trained), and a supervised
 ImageNet ViT-B/16 ($768$). Every results table now reports all eight backbone--dataset settings. The
 substantive finding is that the two added backbones behave like the two originally reported: the
-Mondrian cross-training spread never exceeds $0.024$ in any setting.
+Mondrian cross-training spread never exceeds $0.024$ in any setting at APS.
 
 \textbf{Literature comparison.} The comparison is unflattering and we present it as such --- on Waterbirds our ResNet-50 runs sit $12$--$26$ points below published worst-group
 accuracies, and the gap varies by method rather than being uniform --- and
@@ -368,7 +368,7 @@ founded than we realised.
 \textbf{What we found.} The submitted analysis pooled each method's (accuracy, divergence) points
 across seeds \emph{and} calibration splits. Measured separately, ERM's per-seed base accuracy is
 identical to five decimals in every setting --- its solver is deterministic --- while its across-split
-range is $0.008$--$0.026$ on Waterbirds and $0.036$--$0.059$ on CelebA. So the entire accuracy axis ERM contributed was \emph{which evaluation rows
+range is $0.008$--$0.026$ on Waterbirds and $0.036$--$0.051$ on the CelebA settings it is retained in. So the entire accuracy axis ERM contributed was \emph{which evaluation rows
 were drawn}, not \emph{which model was trained}. Matching on it compares ERM on unlucky draws
 against a robust method on lucky ones. The accompanying bootstrap over pooled points also treated
 nested rows as independent draws, which is exactly the hierarchical-uncertainty problem the reviewer
@@ -543,7 +543,7 @@ reservoirs from a seeded permutation, resampled within their own group indices, 
 common size, realised $\rho$ logged per draw, separate uniform streams for the randomised scores ---
 the per-group counts for both datasets, every head hyperparameter, the training recipe of the
 ResNet-50 backbone, the fine-tuning optimisers and epoch budgets, the shift-robust threshold in
-closed form, the seed sets, and the measured run times. We
+closed form, the seed sets, and the compute each stage needs. We
 also report the per-group calibration counts, whose smallest values are $66$ on Waterbirds and
 $373$ on CelebA, so every Mondrian threshold rests on at least that many scores.
 

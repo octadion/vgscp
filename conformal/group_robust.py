@@ -35,10 +35,27 @@ def mondrian_quantiles(cal_scores_true: np.ndarray, cal_group: np.ndarray, alpha
 
 
 def mondrian_build_sets(test_scores_all: np.ndarray, test_group: np.ndarray,
-                        group_q: dict) -> np.ndarray:
-    """(N, C) membership using each test point's OWN-group quantile (+inf -> full set fallback)."""
-    qvec = np.array([group_q.get(int(g), float("inf")) for g in test_group])
-    return test_scores_all <= qvec[:, None]
+                        group_q: dict, *, n_attributes: int = 2) -> np.ndarray:
+    """(N, C) membership under group-conditional thresholds (+inf -> full set fallback).
+
+    A candidate label c is included when its score falls below the quantile of the stratum that
+    label would place the point in, g(c) = c * n_attributes + a, with a = g % n_attributes the
+    point's spurious attribute. Group ids are 2y + a throughout this study, so a is recovered from
+    the group id and the label is not needed.
+
+    This replaces an earlier version that thresholded EVERY candidate label with the quantile of
+    the point's own group 2y + a. For the labels other than the true one that reads the test
+    label, so the sets it returned were not computable at test time. Coverage is unaffected --- the
+    true label is compared against its own group's quantile either way --- but set sizes are, so
+    records produced before this fix must be regenerated before their sizes are quoted.
+    """
+    g = np.asarray(test_group).astype(int)
+    a = g % int(n_attributes)
+    n_classes = test_scores_all.shape[1]
+    lookup = np.array([group_q.get(int(gid), float("inf"))
+                       for gid in range(n_classes * int(n_attributes))])
+    qmat = lookup[np.arange(n_classes)[None, :] * int(n_attributes) + a[:, None]]
+    return test_scores_all <= qmat
 
 
 def score_tv_distance(cal_scores: np.ndarray, test_scores: np.ndarray, n_bins: int = 50) -> float:
