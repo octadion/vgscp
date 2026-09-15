@@ -952,7 +952,9 @@ checked without the accuracy confound.
 Waterbirds and CelebA are public. We release the records behind every table---about
 $116{,}000$ conformal evaluations in total, covering the main grid, the calibration
 comparison, the predicted-group study and the fine-tuning study---together with the
-log of which runs were excluded and why, and the scripts that draw each figure. The conformal layer re-runs in
+log of which runs were excluded and why, and the scripts that draw each figure, at
+\texttt{https://github.com/octadion/worst-group-conformal}, archived at
+\texttt{https://doi.org/10.5281/zenodo.22762874}. The conformal layer re-runs in
 minutes from cached scores, with no GPU retraining.
 
 \section*{Declarations}
@@ -1523,10 +1525,12 @@ zero. The reported values are the released ones, the per-setting means agree to 
 and a reader re-running these three should expect the third decimal to move, occasionally the
 second. The re-run measured coverage only, so all set sizes are the released ones.
 
-\textbf{Archival code.} \emph{[To be replaced before publication with the archived DOI of
-the tagged release.]} The archive contains the module that produces each table, the
-notebooks that generated the records, and the exact commands needed to reproduce every
-released record file from the cached features. The released artifacts themselves are
+\textbf{Archival code.} The repository is
+\texttt{https://github.com/octadion/worst-group-conformal}, archived at
+\texttt{https://doi.org/10.5281/zenodo.22762874}, a DOI that resolves to the latest release. It
+contains the module that produces each table and each figure, one script per stage of the
+pipeline, and the exact commands needed to reproduce every released record file from the cached
+features. The released artifacts themselves are
 listed under ``Data and code availability''.
 
 \end{appendices}
