@@ -93,7 +93,7 @@ robust training should pay off for the uncertainty estimates built on top of it.
 
 It does not. Holding the model fixed and changing only the calibration rule lifts worst-group
 coverage by up to $0.345$, and once every group has its own threshold the training method stops
-mattering, while under one shared threshold it decides the outcome. The effect survives
+mattering, while under one shared threshold it can move that coverage by as much as $0.358$. The effect survives
 fine-tuning the representation end-to-end. The size of the effect has a measurable source: the shortfall a shared
 threshold produces is bounded by the Kolmogorov--Smirnov distance between the worst group's score
 distribution and everyone else's. Across our eight settings that distance also tracks how much a
@@ -673,8 +673,8 @@ GroupDRO-LL on ResNet-50/Waterbirds, whose per-seed accuracies bracket ERM's $0.
 reduction is real: $\Delta_{\mathrm{APS}}=+0.084\,[+0.064,+0.101]$,
 $\Delta_{\mathrm{RAPS}}=+0.084\,[+0.063,+0.101]$ and
 $\Delta_{\mathrm{THR}}=+0.150\,[+0.129,+0.168]$, with all three intervals excluding zero. Six
-arms that appear matched on the split-level spread, among them the two the submitted version
-reported, GroupDRO-LL on CLIP/Waterbirds and balanced subsampling on ResNet-50/Waterbirds, are
+arms that appear matched on the split-level spread, among them GroupDRO-LL on CLIP/Waterbirds
+and balanced subsampling on ResNet-50/Waterbirds, are
 unmatched once accuracy is read per model.
 
 That the comparison is usually unavailable is the more telling result. On CelebA the robust methods raise base accuracy to $0.81$--$0.91$ against ERM's
