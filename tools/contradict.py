@@ -41,9 +41,23 @@ forbid(r"the minority group the spurious correlation disadvantages---waterbird-o
        r"Waterbirds, blond male on CelebA",
        "g3 CelebA memegang 47.5% himpunan kalibrasi; bukan minoritas grup")
 
-print("=== reproduksi ulang: 2.400 run vs 36 AFR ===")
-require(r"all but \$36\$ of the \$2\{,\}400\$ evaluations",
-        "klaim reproduksi harus mengecualikan 36 run AFR")
+# The Mondrian set construction is label-conditional: a candidate label c is judged against the
+# quantile of stratum 2c+a. An audit found both documents still describing the superseded own-group
+# rule, which reads the test label, in the very section answering the reviewer who asked how the
+# thresholds are applied. These pin the description to conformal/group_robust.py.
+print("=== konstruksi himpunan Mondrian: label-conditional ===")
+forbid(r"its own bin's threshold", "sisi uji tidak lagi memakai 'bin sendiri'; kuantil dipilih "
+       "per label kandidat (2c+a)", where=("sn-article.tex", "response-to-reviewers.tex"))
+forbid(r"the test assignment use", "penugasan stratum di sisi uji tidak memakai label uji")
+require(r"the stratum that label would place the point in",
+        "Bagian 2 harus menyatakan aturan label-conditional")
+
+# Re-derived after the label-conditional set fix: the per-group table's re-run and the released
+# ablation now come from different machines, so ERM and balanced subsampling join AFR among the
+# evaluations that do not reproduce bit-exactly: 305 of 2,400, re-derived from the two CSVs.
+print("=== reproduksi ulang: 2.400 evaluasi vs 305 tidak persis ===")
+require(r"all but \$305\$ of\s+the \$2\{,\}400\$ evaluations",
+        "klaim reproduksi harus mengecualikan 305 evaluasi")
 forbid(r"reproduces the published worst-group coverage exactly on all \$2\{,\}400\$ runs",
        "bertentangan dengan catatan AFR di Appendix F")
 

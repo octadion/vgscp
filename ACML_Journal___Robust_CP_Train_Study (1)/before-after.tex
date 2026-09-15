@@ -73,7 +73,7 @@ Backbone--dataset settings & \was{4} & \now{8} \\
 Representation retrained? & \was{No --- backbone frozen throughout} &
 \now{Yes --- end-to-end fine-tuning under three objectives} \\
 \addlinespace
-Records behind the tables & \was{single grid} &
+Records behind the tables & \was{grid and two ablations, two backbones} &
 \now{$36{,}000$ grid $+$ $64{,}800$ calibration ablation $+$ $10{,}800$ predicted-group $+$
 $4{,}320$ fine-tuning} \\
 \addlinespace
@@ -109,7 +109,7 @@ Worst-Group Coverage} \\
 The title now names the comparison the paper actually runs, rather than asserting what
 coverage \emph{is}; the subtitle was dropped with it. The same absolute-to-comparative softening
 was applied in fifteen further places, so that the paper does not argue one thing in its title and
-another in its body. The most visible is the Section~5.1 heading:
+another in its body. The most visible is the heading of what is now Section~5.1:
 
 \begin{center}
 \begin{tabular}{@{}L{1.9cm}L{12.6cm}@{}}
@@ -135,12 +135,12 @@ Counts extracted from the two versions of the source.
 \toprule
 & \textbf{Submitted} & \textbf{Revised} & \textbf{Note} \\
 \midrule
-Source lines & 1{,}034 & 1{,}517 & $+47\%$, most of it appendix tables \\
+Source lines & 1{,}034 & 1{,}536 & $+49\%$, most of it appendix tables \\
 Tables & 6 & 18 & 7 in the body, 11 in the appendix \\
 Figures & 4 & 7 & all seven regenerated; none carried over \\
 Numbered equations & 3 & 6 & two are in Proposition~1(ii) \\
 Propositions & 1 & 1 & part (ii) rewritten \\
-Main headings & 17 & 13 & 8 sections, 5 result subsections \\
+Main headings & 16 & 13 & 8 sections, 5 result subsections; unnumbered ones not counted \\
 Appendices & 8 & 6 & reorganised; see below \\
 Unique citations & 25 & 29 & includes the one requested addition \\
 Schematic (TikZ) diagrams & 1 & 0 & replaced by a figure built from data \\
@@ -149,7 +149,7 @@ Schematic (TikZ) diagrams & 1 & 0 & replaced by a figure built from data \\
 \end{center}
 
 \textbf{The appendix was reorganised and expanded, not thinned.} The submitted version had
-eight short appendices, one per hypothesis. The revision has six, organised by what they hold rather than by which
+eight short appendices. The revision has six, organised by what they hold rather than by which
 hypothesis they belong to:
 
 \begin{center}
@@ -183,9 +183,9 @@ appendix grew from prose into tables: it now carries $11$ of the paper's $18$ ta
 
 \section{Figures: a complete replacement}
 
-Every data figure in the submitted paper was a one-off chart for a single backbone--dataset pair,
-which is exactly the generality problem R1.3 raised. Every figure in the revision summarises all eight
-settings or the new fine-tuning study.
+Each of the four data figures in the submitted paper covered at most two backbone--dataset pairs,
+which is exactly the generality problem R1.3 raised. Every figure in the revision except the opening illustration
+summarises all eight settings or the new fine-tuning study.
 
 \begin{center}
 \begin{tabular}{@{}L{6.4cm}L{8.2cm}@{}}
@@ -224,22 +224,21 @@ in the body; only the sub-target figure is in the appendix, beside the analysis 
 \label{sec:withdrawn}
 
 Four statements from the submitted paper are withdrawn rather than softened, because measurement
-contradicts them. Three were found only because the reviewers asked for more backbones and proper
-intervals.
+contradicts them. Three came out of the re-measurement the reviewers asked for.
 
 \begin{enumerate}[leftmargin=1.5em,itemsep=0.4em]
-\item \textbf{``Mondrian is $2$--$4\times$ more split-stable than marginal calibration.''} True on
-the two backbones of the submission; false on four. Marginal's split-to-split SD is
+\item \textbf{``Mondrian is $2$--$4\times$ more split-stable than marginal calibration.''} It does not
+survive the revised measurement, even on the submission's own CLIP settings. Marginal's split-to-split SD is
 $0.007$--$0.043$ against Mondrian's $0.011$--$0.036$, and in five of the eight settings
 Mondrian is the \emph{less} stable of the two. Mondrian's advantage is in the level it attains, not
 in its variance.
-\item \textbf{``The absolute efficiency range is narrow.''} The spread runs $0.036$ to $0.364$, and
+\item \textbf{``The absolute efficiency range is narrow.''} The spread runs $0.022$ to $0.259$, and
 an equivalence check leaves the spread above a $0.10$ margin in six of eight settings.
 \item \textbf{``Training buys efficiency, not coverage''} is now stated as conditional on Mondrian.
 Under marginal calibration, training still moves coverage.
 \item \textbf{The per-setting accuracy--set-size correlations.} Reported bare in the submission,
 including a $-0.97$ and a $-1.00$. With bootstrap intervals over the methods they are
-uninformative in six of eight settings, each resting on only three to five methods. The revision reports a direction, not
+uninformative in all eight settings, each resting on only three to five methods. The revision reports a direction, not
 an estimate.
 \end{enumerate}
 
@@ -260,7 +259,7 @@ Accuracy-matched divergence reduction, balanced subsampling on ResNet-50/Waterbi
 \now{Retracted --- unmatched at model level} \\
 \addlinespace
 Accuracy-matched divergence reduction, GroupDRO-LL on ResNet-50/Waterbirds &
-\was{Reported without an interval} &
+\was{$+0.078\,[+0.061,+0.094]$} &
 \now{$+0.084\,[+0.064,+0.101]$ --- replicates, and the only matched setting of eight} \\
 \addlinespace
 Definition of the coverage gap &
@@ -270,6 +269,13 @@ Definition of the coverage gap &
 Pre-specified C1 criterion &
 \was{Reported as supporting the claim} &
 \now{Met in one of eight settings, and that setting flips to failing when the excluded AFR method is included}
+\\
+\addlinespace
+Every Mondrian set size &
+\was{Each candidate label thresholded by the quantile of the point's own group $2y+a$, which reads
+the test label} &
+\now{Label-conditional, $g(c)=2c+a$; coverage unchanged to machine precision, sizes and their
+disparities recomputed throughout}
 \\
 \bottomrule
 \end{tabular}
@@ -312,7 +318,7 @@ so the sub-target minimum is a min-over-groups effect rather than under-coverage
 \addlinespace
 Appendix~F & \now{The compositing draws with replacement, so a group's nominal count can exceed the
 distinct images behind it---CelebA's aligned $g_3$ reaches $7{,}095$ rows from $140$ images. Also
-that AFR alone does not reproduce bit-exactly, and why.} \\
+which heads do not reproduce bit-exactly on a second machine, and why.} \\
 \addlinespace
 Appendix~A, Table~A1 & \now{Where the worst group actually lands, and how large that group
 is: pinned on one group under a shared threshold---holding $2.5\%$ of the calibration set on
@@ -346,7 +352,8 @@ The central finding is unchanged and now rests on twice the settings and on a st
 representation itself is retrained. Under marginal calibration, worst-group coverage tracks the
 training method and collapses as low as $0.509$; under Mondrian calibration it lands in
 $0.84$--$0.89$ in every setting, and the cross-training spread never exceeds $0.024$, all at APS. The
-dissociation holds across all four backbones, across three conformity scores, across the
+dissociation holds on all four backbones and in seven of the eight settings, across three
+conformity scores, across the
 correlation-strength sweep, under predicted rather than true groups, and when the representation is
 fine-tuned end-to-end.
 

@@ -114,9 +114,9 @@ check of Proposition~\ref{prop:dissociation} on our data, not a new result.
 
 \item \textbf{What training does buy is smaller sets, and only once calibration is
 group-conditional (Section~\ref{sec:c2}).} With coverage matched across methods, the worst group's
-set size still differs between them by $0.036$ to $0.364$. The most accurate method gives the
-smallest sets in six of eight settings, but the per-setting correlations are uninformative once an
-interval is attached, so we report a tendency, not a ranking rule.
+set size still differs between them by $0.022$ to $0.259$. The best robust method gives smaller
+sets than ERM in five of the six settings where ERM is retained, but every per-setting correlation
+is uninformative once an interval is attached, so we report a tendency, not a ranking rule.
 
 \item \textbf{A matched-accuracy protocol, and how little survives it
 (Section~\ref{sec:h1}).} Comparing cross-group divergence at matched model-level accuracy leaves
@@ -210,7 +210,9 @@ and returns $C(x)=\{y\in\mathcal{Y}: s(x,y)\le\hat q\}$. We use three scores: TH
 ($s_{\mathrm{THR}}(x,y)=1-\hat p(y\mid x)$); APS \citep{romano2020}, the cumulative
 softmax mass up to $y$; and RAPS \citep{angelopoulos2020}, APS with a tail
 regularizer. We compare three \emph{calibration policies}: \textbf{marginal split}
-(one global $\hat q$); \textbf{Mondrian} (a separate $\hat q_g$ per group); and
+(one global $\hat q$); \textbf{Mondrian} (a separate $\hat q_g$ per group, with a candidate label
+$c$ admitted when $s(x,c)\le\hat q_{g(c)}$, the stratum that label would place the point in, so
+that the set is computable without the test label); and
 \textbf{shift-robust} (a worst-case threshold over a total-variation ball around the calibration
 distribution, whose radius is the observed shift). Target $1-\alpha=0.90$ throughout; the full configuration is in
 Appendix~\ref{app:hyper}.
@@ -226,7 +228,7 @@ so $\covgap>0$ exactly when the worst group is under-covered. It is the quantity
 throughout. We also report mean set size, the set-size disparity
 $\max_g|C|_g-\min_g|C|_g$, and the unweighted mean over groups
 $|\mathcal{G}|^{-1}\sum_g\cov_g$, which is the level group-conditional calibration targets. The
-mean matters because a minimum over a few groups is biased downward (Section~\ref{sec:h3}).
+mean matters because a minimum over a few groups is biased downward (Appendix~\ref{app:subtarget}).
 
 \paragraph{Cross-group score divergence.} Following the
 conserved-quantity view of \citet{burden2026}, we summarize cross-group score
@@ -381,8 +383,8 @@ splits within them: the ten splits inside a seed share one trained model.
 set for their method and are excluded from the main analysis. They are AFR on all four CelebA
 backbones (all seeds, $0.013$--$0.434$ against a floor of $0.75$), ERM on CelebA with the
 self-supervised and supervised ViT features ($0.203$ and $0.263$ against $0.30$), and two
-GroupDRO-LL seeds and one balanced-subsampling seed on CelebA/ResNet-50. Twelve further runs on
-CelebA fall between their floor and an advisory reference of $0.85$; they are kept and flagged. We
+GroupDRO-LL seeds and one balanced-subsampling seed on CelebA/ResNet-50. Twelve DFR runs on
+CelebA fall between DFR's floor of $0.80$ and its advisory reference of $0.85$; they are kept and flagged. We
 fixed these floors and the six hypotheses of Appendix~\ref{app:hyps} before running the experiments
 they concern, but did not lodge them in a public registry, so they are pre-specified rather than
 preregistered. Appendix~\ref{app:excl} repeats the analysis with the excluded runs put back.
@@ -396,7 +398,8 @@ is not like-for-like for two reasons. We refit only the last layer on features f
 light recipe, whereas the published GroupDRO numbers come from end-to-end training and the published
 DFR and AFR numbers retrain a last layer on a stronger base model; and we read accuracy on our pooled
 evaluation domain. DFR comes closest ($0.851$ against $0.883$ on CelebA). AFR, which reweights the
-base model's own errors, is furthest and degenerates on CelebA (Appendix~\ref{app:excl}). The gaps
+base model's own errors, is furthest on CelebA, where it degenerates (Appendix~\ref{app:excl}); on
+Waterbirds last-layer GroupDRO is furthest. The gaps
 do not affect our conclusions, because every result here compares the same model and the same
 posteriors calibrated two ways. A weaker backbone lowers all methods in a setting together, and the
 four backbones, which span $0.20$--$0.95$ in worst-group accuracy, behave alike.
@@ -512,10 +515,10 @@ DINOv2 & 0.818 & 0.881 & $+0.063$\,[$+0.052,+0.075$] & 0.049 & \textbf{0.024}\,[
 ViT-B/16 & 0.647 & 0.865 & $+0.218$\,[$+0.201,+0.234$] & 0.217 & \textbf{0.007}\,[0.005,0.021] \\
 \midrule
 \multicolumn{6}{l}{\emph{CelebA}} \\
-ResNet-50 & 0.821 & 0.881 & $+0.059$\,[$+0.047,+0.072$] & 0.071 & \textbf{0.003}\,[0.002,0.016] \\
+ResNet-50 & 0.821 & 0.880 & $+0.059$\,[$+0.046,+0.072$] & 0.071 & \textbf{0.003}\,[0.002,0.016] \\
 CLIP & 0.822 & 0.886 & $+0.063$\,[$+0.054,+0.074$] & 0.059 & \textbf{0.003}\,[0.002,0.011] \\
 DINOv2$^{\dagger}$ & 0.813 & 0.885 & $+0.072$ & 0.013 & \textbf{0.003}\,[0.001,0.013] \\
-ViT-B/16$^{\dagger}$ & 0.804 & 0.886 & $+0.082$ & 0.003 & \textbf{0.008}\,[0.003,0.017] \\
+ViT-B/16$^{\dagger}$ & 0.804 & 0.886 & $+0.082$ & 0.003 & \textbf{0.009}\,[0.003,0.017] \\
 \botrule
 \end{tabular}
 \end{table}
@@ -593,32 +596,35 @@ Dataset & Fine-tuned representation & wg acc & marginal & Mondrian \\
 If Mondrian equalizes worst-group \emph{coverage} across training methods, where does
 training help? Table~\ref{tab:c2} reports worst-group set size under Mondrian, where coverage is
 matched, against worst-group accuracy. The direction agrees with an efficiency reading, with
-exceptions. In six of eight settings the most accurate retained method also gives the smallest
-worst-group sets, and ERM gives the largest in four of the six settings where it is retained. The
-exceptions matter. On ResNet-50/Waterbirds AFR produces the largest sets ($1.217$ against ERM's
-$1.138$), and on DINOv2/Waterbirds GroupDRO-LL does ($0.962$ against $0.927$), so a degenerate or
-over-conservative method can be less efficient than the baseline it was meant to improve on. The two settings where the most accurate method is not the most efficient
-are both ResNet-50, and on CelebA the margin is $0.001$.
+exceptions. In four of eight settings the most accurate retained method also gives the smallest
+worst-group sets, and in three of the four that miss it is within $0.010$ of the smallest. ERM
+gives the largest sets in three of the six settings where it is retained. The
+exceptions matter. On ResNet-50/Waterbirds and CLIP/Waterbirds AFR produces the largest sets
+($1.369$ and $1.342$ against ERM's $1.110$ and $1.278$), and on DINOv2/Waterbirds GroupDRO-LL does
+($0.954$ against $0.936$), so an
+over-conservative method can be less efficient than the baseline it was meant to improve on.
+ResNet-50/Waterbirds is also the one setting where ERM gives the smallest sets of all, by $0.005$,
+and the only one where the most accurate method misses by a real margin ($0.070$).
 
 How far that direction can be pushed is limited by how few methods each setting contains.
 A per-setting correlation is computed over three to five methods, and with a bootstrap interval
-over those methods five of the eight span essentially $[-1,+1]$. A sixth, ViT-B/16 on CelebA,
+over those methods six of the eight span essentially $[-1,+1]$. A seventh, ViT-B/16 on CelebA,
 rests on three methods, where most resamples hold two distinct points and return $\pm1$, so its
 narrow interval is no more informative. Coefficients of $-0.97$ and $-1.00$ in two CelebA settings
-are, at $n=4$, not evidence of a deterministic relationship. The two intervals that exclude zero,
-both on Waterbirds, are negative, the direction an efficiency reading predicts, and both positive
-coefficients have intervals spanning $[-1,+1]$. We therefore report a direction, and only under Mondrian.
+are, at $n=4$, not evidence of a deterministic relationship. No interval excludes zero except that
+three-method one, and the eighth setting, ResNet-50/Waterbirds, is the only positive coefficient
+with an interval narrower than the full range and it still contains zero. We therefore report a direction, and only under Mondrian.
 Under one shared threshold training still moves coverage, so the efficiency reading holds only once
 calibration is group-conditional.
 
-The differences in efficiency are themselves substantial, from $0.036$ to $0.364$ across
+The differences in efficiency are themselves substantial, from $0.022$ to $0.259$ across
 settings, and in six of the eight the same check leaves the spread above a margin of $0.10$. Like
 the $0.05$ used for coverage, that margin was chosen after seeing the spreads. Here it works against
 us: a wider margin makes equivalence easier to accept, and the check still does not accept it. Training changes how large the worst group's sets are,
 while calibration decides whether that group is covered at all.
 
 On DINOv2/Waterbirds the mean worst-group set size is \emph{below} one for every training
-method and every score ($0.888$--$0.962$), so a small fraction of prediction sets are empty. This is
+method and every score ($0.890$--$0.954$), so a small fraction of prediction sets are empty. This is
 a legitimate outcome of split conformal with a highly accurate model, since the calibration quantile
 can fall below every class score, and coverage there remains valid under Mondrian
 ($0.857$--$0.882$). We do not clip sets to a minimum size of one, because that would hide it.
@@ -634,16 +640,16 @@ can fall below every class score, and coverage there remains valid under Mondria
 Backbone & ERM & best robust & spread & corr & CI \\
 \midrule
 \multicolumn{6}{l}{\emph{Waterbirds}} \\
-ResNet-50 & 1.138 & 1.101 & 0.116 & $+0.05$ & \emph{$[-1.00,+1.00]$} \\
-CLIP & 1.319 & 1.135 & 0.184 & $-0.85$ & $[-1.00,-0.32]$ \\
-DINOv2 & 0.927 & 0.926 & 0.036 & $+0.22$ & \emph{$[-1.00,+1.00]$} \\
-ViT-B/16 & 1.452 & 1.088 & 0.364 & $-0.91$ & $[-1.00,-0.88]$ \\
+ResNet-50 & 1.110 & 1.115 & 0.259 & $+0.35$ & $[-0.35,+1.00]$ \\
+CLIP & 1.278 & 1.155 & 0.187 & $-0.54$ & \emph{$[-1.00,+1.00]$} \\
+DINOv2 & 0.936 & 0.933 & 0.022 & $+0.15$ & \emph{$[-1.00,+1.00]$} \\
+ViT-B/16 & 1.216 & 1.109 & 0.107 & $-0.80$ & \emph{$[-1.00,+1.00]$} \\
 \midrule
 \multicolumn{6}{l}{\emph{CelebA}} \\
-ResNet-50 & 1.378 & 1.091 & 0.287 & $-0.97$ & \emph{$[-1.00,+1.00]$} \\
-CLIP & 1.163 & 1.041 & 0.122 & $-1.00$ & \emph{$[-1.00,+1.00]$} \\
-DINOv2 & $^{\dagger}$--- & 1.089 & 0.095 & $-0.70$ & \emph{$[-1.00,+1.00]$} \\
-ViT-B/16 & $^{\dagger}$--- & 1.105 & 0.039 & $-0.97$ & \emph{$[-1.00,-0.97]$} \\
+ResNet-50 & 1.324 & 1.109 & 0.215 & $-0.97$ & \emph{$[-1.00,+1.00]$} \\
+CLIP & 1.172 & 1.071 & 0.101 & $-1.00$ & \emph{$[-1.00,+1.00]$} \\
+DINOv2 & $^{\dagger}$--- & 1.133 & 0.075 & $-0.51$ & \emph{$[-1.00,+1.00]$} \\
+ViT-B/16 & $^{\dagger}$--- & 1.138 & 0.050 & $-0.85$ & \emph{$[-1.00,-0.85]$} \\
 \botrule
 \end{tabular}
 \end{table}
@@ -666,9 +672,10 @@ lucky ones (Appendix~\ref{app:hyper}). At model level ERM's accuracy support col
 GroupDRO-LL on ResNet-50/Waterbirds, whose per-seed accuracies bracket ERM's $0.9399$. There the
 reduction is real: $\Delta_{\mathrm{APS}}=+0.084\,[+0.064,+0.101]$,
 $\Delta_{\mathrm{RAPS}}=+0.084\,[+0.063,+0.101]$ and
-$\Delta_{\mathrm{THR}}=+0.150\,[+0.129,+0.168]$, with all three intervals excluding zero. Two
-settings that appear matched on the split-level spread, GroupDRO-LL on CLIP/Waterbirds and balanced
-subsampling on ResNet-50/Waterbirds, are unmatched once accuracy is read per model.
+$\Delta_{\mathrm{THR}}=+0.150\,[+0.129,+0.168]$, with all three intervals excluding zero. Six
+arms that appear matched on the split-level spread, among them the two the submitted version
+reported, GroupDRO-LL on CLIP/Waterbirds and balanced subsampling on ResNet-50/Waterbirds, are
+unmatched once accuracy is read per model.
 
 That the comparison is usually unavailable is the more telling result. On CelebA the robust methods raise base accuracy to $0.81$--$0.91$ against ERM's
 $0.68$--$0.70$, so no common operating point exists. On the remaining Waterbirds settings the robust
@@ -758,24 +765,25 @@ test. On CelebA, where $\rho=0.95$ reverses the raw association (Section~\ref{se
 $\rhotest$ moves the evaluation distribution toward the raw data.
 
 Figure~\ref{fig:shift} sweeps $\rhotest$ with calibration fixed at $\rhocal=0.95$. Worst-group
-coverage is flat across the sweep. Under Mondrian it varies by at most $0.024$ for every method and
+coverage is flat across the sweep. Under APS and Mondrian it varies by at most $0.024$ for every method and
 setting, and under one shared threshold by at most $0.037$. This is expected, since a group-prior
 shift leaves each group's coverage under a fixed threshold unchanged. The backbone also matters far less under
 Mondrian: at the calibration point its envelope across backbones is $0.014$ wide on Waterbirds,
 against $0.121$ under one shared threshold. Shift-robust calibration, whose threshold grows with the
-calibration-to-test distance, gains up to $0.347$ as $\rhotest$ falls by design, and degenerates
+calibration-to-test distance, gains up to $0.347$ under APS as $\rhotest$ falls by design, and degenerates
 under THR on CelebA (Appendix~\ref{app:supp}).
 
 Under Mondrian no method reaches $0.90$: the level is $0.84$--$0.89$ under APS and $0.83$--$0.89$
 once RAPS and THR are included, so group-conditional calibration relocates the worst-group gap
-without closing it. A strict bar of $0.88$ is cleared on average on CelebA ($\approx0.88$) but not on
-Waterbirds ($\approx0.87$), and by only seven of CelebA's fourteen kept (setting, method) pairs. The
+without closing it. At the calibration point a strict bar of $0.88$ is missed on average on both datasets, narrowly
+on CelebA ($0.8799$) and clearly on Waterbirds ($0.866$), and cleared by six of CelebA's fourteen
+kept (setting, method) pairs. The
 curve is flat in both, so this is a sub-target level, not a collapse under shift.
 
 The sweep shows no relocation either. The matched-divergence reduction of Section~\ref{sec:h1}
-becomes undefined, and set-size disparity barely moves between $\rhotest=0.95$ and $0.5$: it grows
-in fourteen of the thirty-four retained (setting, method) pairs, never by more than $0.01$, and falls
-by at most $0.020$. The ``relocate, not remove'' effect of \citet{burden2026} therefore does not
+becomes undefined, and set-size disparity barely moves between $\rhotest=0.95$ and $0.5$: under APS it grows
+in seven of the thirty-four retained (setting, method) pairs, never by more than $0.011$, and falls
+by at most $0.034$. The ``relocate, not remove'' effect of \citet{burden2026} therefore does not
 appear as a shift effect.
 
 The sub-target level is a finite-sample effect, and two quantities show it. Over the three methods
@@ -792,7 +800,7 @@ five of the eight settings Mondrian is the less stable of the two
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/shift_mondrian_vs_marginal}
-\caption{Worst-group coverage against $\rhotest$, with calibration held at $\rhocal=0.95$ and coverage averaged over the kept training methods. One curve per backbone, shaded to the envelope across the four; blue is Mondrian, red is one shared threshold.}
+\caption{Worst-group coverage against $\rhotest$, with calibration held at $\rhocal=0.95$ and coverage averaged over the kept training methods (APS). One curve per backbone, shaded to the envelope across the four; blue is Mondrian, red is one shared threshold.}
 \label{fig:shift}
 \end{figure}
 
@@ -815,15 +823,17 @@ already delivers from a representation that stays fully recoverable.
 
 Mondrian needs group labels, which a deployment lacks, but the spurious attribute is easy to
 recover from the deployed features. Only the attribute is predicted, never the label $y$. A probe fitted on the training
-split's features predicts $\hat a$, the stratum is $\hat g=2y+\hat a$, and both the
-thresholds and the test assignment use $\hat g$. Coverage is always scored against the
+split's features predicts $\hat a$. Calibration points are binned by $\hat g=2y+\hat a$, whose $y$
+is known there, and a test point admits candidate label $c$ when its score falls below
+$\hat q_{2c+\hat a}$, so the predicted attribute is all the test side uses. Coverage is always scored against the
 \emph{true} group, so a mis-assignment counts against us. The attribute is then needed on the
 training split alone, not on the calibration split and never at test. The requirement is weakened,
 not removed, since $y$ is still needed to calibrate, as in any split-conformal method.
 
 Table~\ref{tab:predgroup} compares this deployable version with the ground-truth oracle. The
 median coverage gap per setting is $0.001$--$0.012$, and $30$ of $34$ methods stay within $0.02$ of
-the oracle. The penalty is asymmetric by construction. The minority stratum carries the largest
+the oracle, the same count under RAPS but not under THR, so we scope the claim to those two scores
+(Appendix~\ref{app:supp}). The penalty is asymmetric by construction. The minority stratum carries the largest
 threshold, so a minority point misplaced into a majority stratum is judged too strictly and
 under-covered, while the reverse error only wastes efficiency. Probe accuracy does not order the
 failures: the setting with the lowest $\auroc$ has none, and one at $\auroc=0.999$ has one. The
@@ -865,7 +875,7 @@ DINOv2 & 0.961 & 0.010 & 0.024 & 4/5 & ERM \\
 ViT-B/16 & 0.964 & 0.006 & 0.022 & 4/5 & AFR \\
 \midrule
 \multicolumn{6}{l}{\emph{CelebA}} \\
-ResNet-50 & 0.962 & 0.003 & 0.005 & 4/4 & --- \\
+ResNet-50 & 0.962 & 0.003 & 0.003 & 4/4 & --- \\
 CLIP & 0.999 & 0.011 & 0.025 & 3/4 & GroupDRO-LL \\
 DINOv2 & 0.999 & 0.012 & 0.013 & 3/3 & --- \\
 ViT-B/16 & 0.993 & 0.001 & 0.003 & 3/3 & --- \\
@@ -883,14 +893,18 @@ One cost of that recommendation points the other way.
 equalizing coverage produces the \emph{largest} disparity in outcomes of any rule they
 test, because it widens the gap in set sizes; they recommend equalizing set sizes instead. Our
 data reproduces their mechanism. Moving from a shared threshold to per-group thresholds raises the
-set-size disparity in all eight settings, from $0.080$--$0.339$ to $0.168$--$0.608$
-(Table~\ref{tab:pergroupcov}). In the setting of Figure~\ref{fig:overview}(d), the worst group's
-sets grow from $1.080$ to $1.319$ while the average barely moves.
+set-size disparity in six of the eight settings, and leaves the range at $0.132$--$0.323$ against
+$0.080$--$0.339$ (Table~\ref{tab:pergroupcov}). In the setting of Figure~\ref{fig:overview}(d), the
+worst group's sets grow from $1.080$ to $1.278$, and the average grows with them, from $0.984$ to
+$1.214$.
 
 Both results stand, and what
 separates them is which quantity carries the guarantee. Where coverage is what is promised, as in an
 audit, a service-level agreement or a regulatory floor, the calibration rule is the lever, and the
-cost is larger sets for the group that was being under-served. Where a person reads the set and acts
+cost is paid in set size. Who pays depends on the setting: on Waterbirds the average grows in all
+four settings, by up to $0.151$, and the worst group's sets in three of them, while on CelebA,
+where the group that comes out worst is one of the two large aligned cells, the average shrinks in
+all four and the worst group's sets in three. Where a person reads the set and acts
 on it, set size is what reaches the decision, and equalizing coverage buys validity at a price paid
 in the wrong currency.
 
@@ -908,7 +922,7 @@ representations and, because the group is recoverable, needs no group labels at 
 This study has six limitations. First, the evidence comes from two vision benchmarks with binary
 labels and binary spurious attributes, four frozen backbones and one backbone fine-tuned
 end-to-end. With two classes a set holds at most two labels, so the efficiency axis is compressed,
-although the observed spread across training methods still runs from $0.036$ to $0.364$. A third
+although the observed spread across training methods still runs from $0.022$ to $0.259$. A third
 dataset and a multi-class task would show whether the dissociation depends on $|\mathcal{Y}|=2$.
 Second, the fine-tuning study moves the representation for one architecture only, so its evidence is
 narrower than the frozen grid's. Third, the accuracy-matched comparison is undefined wherever a
@@ -916,8 +930,8 @@ method's accuracy support does not overlap ERM's, which prevents a uniform state
 Mondrian's group-conditional coverage is close to a per-group target by construction, so the
 non-trivial content is the \emph{magnitude} of marginal calibration's representation-dependent
 failure and the size of the ERM lift. Fifth, deployable Mondrian (Section~\ref{sec:predgroup}) holds
-for APS, RAPS and the robust methods but degrades for the most group-dependent model and the THR
-score, and it infers a protected attribute at test time, so it should be used only where that
+in thirty of thirty-four (setting, method) pairs under APS and again under RAPS---the four misses
+are two ERM, one AFR and one GroupDRO-LL---and degrades under THR, where nine pairs miss. It also infers a protected attribute at test time, so it should be used only where that
 inference is permissible and auditable. Sixth, the confidence intervals do not model cross-dataset
 variance.
 
@@ -1014,10 +1028,10 @@ CLIP & $g_{2}$ & 0.025 & 99 & 41 \\
 DINOv2 & $g_{2}$ & 0.025 & 85 & 33 \\
 ViT-B/16 & $g_{2}$ & 0.025 & 94 & 30 \\
 \multicolumn{5}{@{}l}{\emph{CelebA}} \\
-ResNet-50 & $g_{3}$ & 0.475 & 100 & 38 \\
+ResNet-50 & $g_{3}$ & 0.475 & 100 & 37 \\
 CLIP & $g_{3}$ & 0.475 & 100 & 31 \\
 DINOv2 & --- & --- & --- & 37 \\
-ViT-B/16 & --- & --- & --- & 36 \\
+ViT-B/16 & --- & --- & --- & 35 \\
 \botrule
 \end{tabular}
 \end{table}
@@ -1114,9 +1128,9 @@ two-stage cluster bootstrap used throughout.
 
 \paragraph{Per-group coverage.} Table~\ref{tab:pergroupcov} gives all four groups'
 coverage rather than only the minimum, from a re-run at the headline configuration on the released
-splits. The minimum over the four reproduces the published worst-group coverage on all but $36$ of
-the $2{,}400$ evaluations, every exception an AFR evaluation and none differing by more than
-$0.013$ (Appendix~\ref{app:hyper}), so these are the same evaluations at finer grain.
+splits. The minimum over the four reproduces the published worst-group coverage on all but $305$ of
+the $2{,}400$ evaluations, all of them ERM, AFR or balanced subsampling and none differing by more
+than $0.013$ (Appendix~\ref{app:hyper}), so these are the same evaluations at finer grain.
 
 Under per-group thresholds every group sits between $0.886$ and $0.917$, individually near
 target, with a per-setting mean over groups of $0.8995$--$0.9056$ against minima of
@@ -1144,22 +1158,22 @@ Setting & rule & $g_0$ & $g_1$ & $g_2$ & $g_3$ & mean & min & disparity \\
 \midrule
 \multicolumn{9}{@{}l}{\emph{Waterbirds}} \\
 ResNet-50 & shared & 0.931 & 0.848 & 0.735 & 0.873 & 0.847 & 0.729 & 0.132 \\
- & per-group & 0.901 & 0.911 & 0.914 & 0.893 & 0.905 & 0.870 & 0.608 \\
+ & per-group & 0.901 & 0.911 & 0.914 & 0.893 & 0.905 & 0.870 & 0.278 \\
 CLIP & shared & 0.923 & 0.857 & 0.755 & 0.874 & 0.852 & 0.745 & 0.173 \\
- & per-group & 0.903 & 0.917 & 0.898 & 0.886 & 0.901 & 0.856 & 0.521 \\
+ & per-group & 0.903 & 0.917 & 0.898 & 0.886 & 0.901 & 0.856 & 0.244 \\
 DINOv2 & shared & 0.908 & 0.896 & 0.866 & 0.885 & 0.889 & 0.850 & 0.080 \\
- & per-group & 0.899 & 0.916 & 0.916 & 0.890 & 0.905 & 0.869 & 0.200 \\
+ & per-group & 0.899 & 0.916 & 0.916 & 0.890 & 0.905 & 0.869 & 0.132 \\
 ViT-B/16 & shared & 0.916 & 0.869 & 0.807 & 0.883 & 0.869 & 0.792 & 0.140 \\
- & per-group & 0.900 & 0.915 & 0.914 & 0.893 & 0.906 & 0.869 & 0.449 \\
+ & per-group & 0.900 & 0.915 & 0.914 & 0.893 & 0.906 & 0.869 & 0.206 \\
 \multicolumn{9}{@{}l}{\emph{CelebA}} \\
 ResNet-50 & shared & 0.925 & 0.944 & 0.953 & 0.877 & 0.925 & 0.865 & 0.339 \\
- & per-group & 0.898 & 0.901 & 0.900 & 0.903 & 0.900 & 0.879 & 0.505 \\
+ & per-group & 0.898 & 0.901 & 0.900 & 0.903 & 0.900 & 0.879 & 0.323 \\
 CLIP & shared & 0.907 & 0.920 & 0.933 & 0.894 & 0.913 & 0.866 & 0.239 \\
- & per-group & 0.898 & 0.907 & 0.898 & 0.906 & 0.902 & 0.884 & 0.313 \\
+ & per-group & 0.898 & 0.907 & 0.898 & 0.906 & 0.902 & 0.884 & 0.251 \\
 DINOv2 & shared & 0.888 & 0.893 & 0.934 & 0.916 & 0.908 & 0.881 & 0.152 \\
- & per-group & 0.897 & 0.895 & 0.901 & 0.908 & 0.900 & 0.878 & 0.198 \\
+ & per-group & 0.897 & 0.895 & 0.901 & 0.908 & 0.900 & 0.878 & 0.180 \\
 ViT-B/16 & shared & 0.884 & 0.905 & 0.924 & 0.913 & 0.906 & 0.881 & 0.163 \\
- & per-group & 0.899 & 0.900 & 0.900 & 0.899 & 0.900 & 0.877 & 0.168 \\
+ & per-group & 0.899 & 0.900 & 0.900 & 0.899 & 0.900 & 0.877 & 0.151 \\
 \botrule
 \end{tabular}
 \end{table}
@@ -1169,8 +1183,8 @@ ViT-B/16 & shared & 0.884 & 0.905 & 0.924 & 0.913 & 0.906 & 0.881 & 0.163 \\
 \section{Sub-Target Coverage under Mondrian}
 \label{app:subtarget}
 
-Mondrian's empirical worst-group coverage settles at $0.83$--$0.89$ rather than the
-nominal $0.90$ (Section~\ref{sec:c1}). This appendix shows the level is what an
+Mondrian's empirical worst-group coverage settles at $0.856$--$0.884$, averaged over methods,
+rather than the nominal $0.90$ (Section~\ref{sec:c1}). This appendix shows the level is what an
 \emph{exactly valid} procedure produces at our calibration sizes, so it is a property
 of the reported statistic and not a validity failure.
 
@@ -1198,11 +1212,12 @@ Under the Mondrian rule the minimum is not tied to a particular kind of group
 group.
 Figure~\ref{fig:subtarget} puts our own evaluations against it. Simulated at
 our own per-group counts, an exactly valid procedure puts the minimum at $0.8702$ on
-Waterbirds and $0.8847$ on CelebA; we observe $0.8660$ and $0.8800$, with $96.5\%$ and
+Waterbirds and $0.8847$ on CelebA; we observe $0.8660$ and $0.8799$, with $96.5\%$ and
 $95.1\%$ of evaluations inside the simulated central range. Both simulations use $3000$ draws and
 the nominal per-group counts rather
 than the distinct-image counts, which understates the noise on exactly the groups the minimum tends
-to fall on, so the residual reported below is an upper bound on what the law leaves unexplained.
+to fall on, so the residual of $0.004$--$0.005$ between the simulated and observed minima is an upper bound
+on what the law leaves unexplained.
 Table~\ref{tab:subtarget} repeats the exercise with no model, no data and no representation: four
 groups, i.i.d.\ continuous scores, exact exchangeability, per-group conformal thresholds, and only
 the realised per-group calibration counts varied.
@@ -1224,7 +1239,7 @@ the realised per-group calibration counts varied.
 cal.\ pool & per-group counts & mean over groups & $\mathbb{E}[\min_g\cov_g]$ & shortfall \\
 \midrule
 $500$    & $238/13/13/238$      & 0.915 & 0.842 & 0.058 \\
-$1{,}000$  & $475/25/25/475$      & 0.913 & 0.858 & 0.042 \\
+$1{,}000$  & $475/25/25/475$      & 0.912 & 0.858 & 0.042 \\
 $2{,}000$  & $950/50/50/950$      & 0.901 & 0.856 & 0.044 \\
 $5{,}000$  & $2375/125/125/2375$  & 0.902 & 0.874 & 0.026 \\
 $10{,}000$ & $4750/250/250/4750$  & 0.900 & 0.880 & 0.020 \\
@@ -1275,8 +1290,9 @@ worst-group coverage is obtained, so coverage and post-hoc group auditing coexis
 \end{hypothesis}
 
 Table~\ref{tab:hypverdict} collects what each returned. Three came back split. Of the two clauses of
-H\ref{hyp:c1}, the second, marginal split below target by a training-dependent amount, is confirmed
-in all eight settings. The first, Mondrian near target for every method, is \textbf{not met} on the
+H\ref{hyp:c1}, the second, marginal split below target by a training-dependent amount, is confirmed,
+judged by the across-method spread, in seven of the eight settings, all but ViT-B/16/CelebA, where the shared threshold already leaves
+almost nothing to recover. The first, Mondrian near target for every method, is \textbf{not met} on the
 C1 criterion fixed with these hypotheses, \emph{Mondrian within $0.02$ of target for every kept
 training method, and marginal split significantly below target for every one of them}, which
 Appendix~\ref{app:excl} reports met in one setting of eight. The dissociation the paper argues for
@@ -1298,16 +1314,16 @@ H\ref{hyp:c1}a & Mondrian near target for every method
 & \textbf{not met} \\
 \addlinespace
 H\ref{hyp:c1}b & Marginal split below target, method-dependent
-& Spread up to $0.358$ under a shared threshold against at most $0.024$ under per-group, in all
-eight settings & \textbf{confirmed} \\
+& Spread up to $0.358$ under a shared threshold against at most $0.024$ under per-group in all
+eight; the shared spread is the larger in seven, all but ViT-B/16/CelebA & \textbf{confirmed in seven} \\
 \addlinespace
 H\ref{hyp:c2}a & Set size differs by training method
-& $0.036$--$0.364$; equivalence not established at a $0.10$ margin in six of eight
+& $0.022$--$0.259$; equivalence not established at a $0.10$ margin in six of eight
 & \textbf{confirmed} \\
 \addlinespace
 H\ref{hyp:c2}b & and tracks accuracy
-& Correlations uninformative in six of eight once an interval is attached; the most accurate
-method is the most efficient in six of eight & \textbf{tendency only} \\
+& Correlations uninformative in all eight once an interval is attached; the most accurate
+method is the most efficient in four of eight & \textbf{tendency only} \\
 \addlinespace
 H\ref{hyp:h1} & Robust training lowers the accuracy-matched divergence
 & Real in the one setting where model-level supports overlap ($+0.084$, $+0.084$, $+0.150$ across
@@ -1319,12 +1335,13 @@ H\ref{hyp:h2} & The accuracy-best method differs from the shortfall-best
 & \textbf{weakly supported} \\
 \addlinespace
 H\ref{hyp:h3} & Any reduction or level holds across the $\rhotest$ sweep
-& The coverage level holds---under Mondrian, worst-group coverage moves by at most $0.024$ over the sweep---while
+& The coverage level holds---under Mondrian and APS, worst-group coverage moves by at most $0.024$ over the sweep---while
 the matched-divergence reduction becomes undefined & \textbf{split} \\
 \addlinespace
 H\ref{hyp:audit} & The attribute stays recoverable where coverage is obtained
-& Probe $\auroc\in[0.945,0.999]$ in all eight settings while Mondrian delivers $0.83$--$0.89$
-& \textbf{confirmed} \\
+& Probe $\auroc\in[0.945,0.999]$ in all eight settings while Mondrian delivers $0.83$--$0.89$;
+projecting the attribute out moves coverage by at most $0.022$, past the $0.02$ tradeoff flag only on
+CLIP/Waterbirds (Section~\ref{sec:audit}) & \textbf{confirmed, one flag} \\
 \botrule
 \end{tabular}
 \end{table}
@@ -1340,11 +1357,11 @@ of $200$ they exclude. At seed level those are GroupDRO-LL seeds $1$ and $4$ on 
 ($0.676$, $0.683$) and balanced subsampling seed $4$ there ($0.730$). The twelve kept-but-flagged
 runs are all DFR on CelebA, at $0.808$--$0.847$ against the soft reference of $0.85$.
 Table~\ref{tab:dagger} gives the two excluded ERM settings in full. These are the values carried
-with a dagger in Tables~\ref{tab:c1} and~\ref{tab:h1}, reported so that the reader can see what the
+with a dagger in Table~\ref{tab:c1}, reported so that the reader can see what the
 excluded baseline would have contributed.
 
 \begin{table}[!ht]
-\caption{The daggered ERM values of Table~\ref{tab:c1}: worst-group coverage under both calibration rules (APS, $\rhocal=0.95$), the worst-group accuracy that triggers the exclusion, and the floor it misses. Table~\ref{tab:h1} prints dashes for the same settings for a different reason: no ERM reference model exists there, so its $D$ and base accuracy are undefined.}
+\caption{The daggered ERM values of Table~\ref{tab:c1}: worst-group coverage under both calibration rules (APS, $\rhocal=0.95$), the worst-group accuracy that triggers the exclusion, and the floor it misses. Table~\ref{tab:h1} prints dashes for the same settings instead, because an ERM model below its floor cannot serve as the matching reference.}
 \label{tab:dagger}
 \footnotesize
 \setlength{\tabcolsep}{5pt}
@@ -1383,16 +1400,15 @@ method-level one below.
 
 Restoring the whole excluded methods is the larger perturbation, and we recomputed every
 result with them included. The dissociation is still unaffected: under Mondrian the
-across-training spread rises only to $0.028$ at worst, against $0.024$ with the methods
+across-training spread rises only to $0.027$ at worst, against $0.024$ with the methods
 excluded, while the marginal spread grows because the degenerate methods are themselves
 badly under-covered. One thing does change and we report it. The pre-specified C1 criterion asks for Mondrian within
 $0.02$ of target \emph{and} marginal significantly below target for \emph{every} method, and it is
 met in exactly one of eight settings (CLIP/CelebA). That single setting \emph{flips} to failing
-when the excluded AFR method is included, since AFR's marginal coverage there is $0.695$. The
+when the excluded AFR method is included, since AFR's per-group coverage there is $0.858$, short of the $0.88$ the criterion asks
+for, while its marginal coverage of $0.695$ meets the other clause. The
 criterion is therefore not robust to the exclusion rule, and we rest the claim on the size of the
-spreads rather than on a pass/fail flag. Including a degenerate method also produces a spurious
-matched-accuracy signal for AFR on CelebA/ResNet-50, which is a further reason to report both
-readings rather than either alone.
+spreads rather than on a pass/fail flag.
 
 \section{Experimental Details}
 \label{app:hyper}
@@ -1408,8 +1424,8 @@ axis mostly evaluation-draw noise: ERM's per-seed base accuracy is identical to 
 every setting, so its apparent spread is only which evaluation rows were drawn, matching on it
 compares ERM on unlucky draws against a robust method on lucky ones, and a bootstrap over the pooled
 points treats nested rows as independent. Accuracy is overall (base) top-1 on the evaluation
-distribution, and each method's $D(a^\star)$ is read off a least-squares line through its per-seed
-points.
+distribution, and each robust method's $D(a^\star)$ is read off a least-squares line through its per-seed
+points; ERM's is its mean, its accuracy being a single point.
 \textbf{Recoverability.} Each direction the projection of Section~\ref{sec:audit} removes is the
 normalised weight of a logistic probe refitted on the already deflated training features, and it is
 removed from training and evaluation features alike.
@@ -1432,8 +1448,8 @@ with four spurious groups; the evaluation distribution is re-composited to a tar
 correlation strength $\rho$. The ``cal $=$ test'' and ``per group'' columns give the halves
 at the headline $\rho=0.95$: they are equal in size by the truncation described above,
 and each splits across groups $2y+a=0,1,2,3$ in the proportions
-$0.475/0.025/0.025/0.475$ that $\rho$ fixes. ``Distinct images'' is what those counts are drawn
-from; the draw is with replacement.}
+$0.475/0.025/0.025/0.475$ that $\rho$ fixes. ``Distinct images'' counts the different images
+among those rows, since the draw is with replacement.}
 \label{tab:data}
 \small
 \setlength{\tabcolsep}{4pt}
@@ -1494,15 +1510,18 @@ deterministic given the cached features, so their across-seed variance is exactl
 and feature extraction runs once per backbone. The four-backbone grid, the calibration ablation
 and the predicted-group study each take a few hours on a single machine, with no GPU
 retraining.
-\textbf{Reproducibility of AFR.} Re-running the evaluation for Table~\ref{tab:pergroupcov}
-reproduced the released records exactly for ERM, DFR, GroupDRO-LL and balanced subsampling, but not
-for AFR, which differed in $36$ of its $480$ evaluations, by at most $0.013$ in worst-group coverage,
-on ResNet-50 and CLIP over Waterbirds. AFR is the only two-stage fit here: a first head's
-probabilities become the sample weights of a second, so a last-bit difference in the first solve can
-move a few test points across the threshold. ERM shares its features and solver and is exact, so the
-effect is specific to that second stage. The reported values are the released ones, the per-setting
-means agree to within $0.0006$, and a reader re-running AFR should expect the third decimal to move,
-occasionally the second. The re-run measured coverage only, so AFR's set sizes are the released ones.
+\textbf{Reproducibility across machines.} The evaluation behind Table~\ref{tab:pergroupcov} was
+re-run on a different machine from the one that produced the released records, on the same cached
+features and the same released splits. DFR and last-layer GroupDRO reproduce exactly. ERM, AFR and
+balanced subsampling differ in $305$ of the $2{,}400$ evaluations, by at most $0.013$ in worst-group
+coverage, AFR holding $192$ of those. Each of the three is a single L-BFGS solve read at full
+precision, and the same solve on the same features can stop a last bit apart under a different
+linear-algebra build, which moves a few test points across a threshold; AFR carries that difference
+twice, since a first head's probabilities become the sample weights of a second. Within either
+machine the fits are deterministic, so ERM's and AFR's across-seed standard deviation is exactly
+zero. The reported values are the released ones, the per-setting means agree to within $0.0004$,
+and a reader re-running these three should expect the third decimal to move, occasionally the
+second. The re-run measured coverage only, so all set sizes are the released ones.
 
 \textbf{Archival code.} \emph{[To be replaced before publication with the archived DOI of
 the tagged release.]} The archive contains the module that produces each table, the

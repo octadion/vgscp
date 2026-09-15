@@ -53,7 +53,8 @@ CHECKS = [
     ("R2.4", True, "pre-specified vs preregistered stated in body",
      [r"pre-specified rather than preregistered"]),
     ("R2.4", False, "sensitivity analysis over excluded runs",
-     [r"rises only to \$0\.028\$", r"[Rr]estor\w* the (?:whole )?excluded|put back"]),
+     # the value moves when the records are regenerated; what must survive is the sentence
+     [r"rises only to \$0\.0\d+\$", r"[Rr]estor\w* the (?:whole )?excluded|put back"]),
     ("R2.5", True, "rho-sweep scoped to group-prior shift",
      [r"group mixture", r"not a general covariate shift|group-prior shift"]),
     ("R2.5", True, "predicted-group mechanics + supervision + probe error",

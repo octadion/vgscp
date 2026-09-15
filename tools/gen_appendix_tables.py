@@ -79,7 +79,8 @@ def foot():
 # W1 is given for the headline score only. Appendix A shows it carries no bound, so it is here to
 # be comparable with the summary Burden et al. report and not because three columns of it are read.
 head(r"Cross-group conformity-score divergences under one shared threshold "
-     r"($\rhocal=\rhotest=0.95$), averaged over the kept training methods. "
+     r"($\rhocal=\rhotest=0.95$), pooled over all non-excluded runs, including the seven flagged "
+     r"DFR runs on CelebA that Figure~\ref{fig:mech} leaves out. "
      r"$D_{\mathrm{KS}}$ is the quantity bounded in Eq.~\eqref{eq:ksbound}; $\Wone$, given for "
      r"APS alone, is a descriptive summary and enters no bound.",
      "tab:div", "l" + "c" * 4,

@@ -16,17 +16,17 @@ CLIP & 0.358 & 0.024 & 0.369 & 0.029 & 0.478 & 0.018 \\
 DINOv2 & 0.049 & 0.024 & 0.051 & 0.023 & 0.340 & 0.007 \\
 ViT-B/16 & 0.217 & 0.007 & 0.221 & 0.010 & 0.409 & 0.011 \\
 \multicolumn{7}{@{}l}{\emph{CelebA}} \\
-ResNet-50 & 0.071 & 0.003 & 0.075 & 0.004 & 0.071 & 0.016 \\
+ResNet-50 & 0.071 & 0.003 & 0.075 & 0.004 & 0.070 & 0.014 \\
 CLIP & 0.059 & 0.003 & 0.066 & 0.003 & 0.087 & 0.008 \\
-DINOv2 & 0.013 & 0.003 & 0.014 & 0.004 & 0.013 & 0.007 \\
-ViT-B/16 & 0.003 & 0.008 & 0.002 & 0.008 & 0.004 & 0.001 \\
+DINOv2 & 0.013 & 0.003 & 0.014 & 0.004 & 0.013 & 0.008 \\
+ViT-B/16 & 0.003 & 0.009 & 0.002 & 0.008 & 0.004 & 0.001 \\
 \botrule
 \end{tabular}
 \end{table}
 
 \begin{table}[!ht]
 \centering
-\caption{Cross-group conformity-score divergences under one shared threshold ($\rhocal=\rhotest=0.95$), averaged over the kept training methods. $D_{\mathrm{KS}}$ is the quantity bounded in Eq.~\eqref{eq:ksbound}; $\Wone$, given for APS alone, is a descriptive summary and enters no bound.}
+\caption{Cross-group conformity-score divergences under one shared threshold ($\rhocal=\rhotest=0.95$), pooled over all non-excluded runs, including the seven flagged DFR runs on CelebA that Figure~\ref{fig:mech} leaves out. $D_{\mathrm{KS}}$ is the quantity bounded in Eq.~\eqref{eq:ksbound}; $\Wone$, given for APS alone, is a descriptive summary and enters no bound.}
 \label{tab:div}
 \footnotesize
 \setlength{\tabcolsep}{3.5pt}
@@ -43,7 +43,7 @@ ViT-B/16 & 0.157 & 0.156 & 0.291 & 0.071 \\
 ResNet-50 & 0.130 & 0.133 & 0.533 & 0.070 \\
 CLIP & 0.125 & 0.126 & 0.360 & 0.069 \\
 DINOv2 & 0.054 & 0.055 & 0.245 & 0.026 \\
-ViT-B/16 & 0.050 & 0.050 & 0.279 & 0.026 \\
+ViT-B/16 & 0.050 & 0.050 & 0.277 & 0.026 \\
 \botrule
 \end{tabular}
 \end{table}
@@ -78,7 +78,7 @@ Reweighting & APS & 0.364 & 0.806\,[0.010] & 0.881\,[0.005] \\
 
 \begin{table}[!ht]
 \centering
-\caption{Predicted-group calibration: worst-group coverage under the three conditions of Table~\ref{tab:predgroup} ($\rhocal=\rhotest=0.95$), averaged over the kept training methods, for APS and THR. Coverage is always scored against the true groups. RAPS is within $0.002$ of APS in every cell.}
+\caption{Predicted-group calibration: worst-group coverage under the three conditions of Table~\ref{tab:predgroup} ($\rhocal=\rhotest=0.95$), averaged over the kept training methods, for APS and THR. Coverage is always scored against the true groups. RAPS is within $0.001$ of APS in every cell.}
 \label{tab:pgfull}
 \footnotesize
 \setlength{\tabcolsep}{3.5pt}
@@ -97,7 +97,7 @@ ViT-B/16 & APS & 0.869 & 0.864 & 0.873 & 0.964 \\
  & THR & 0.868 & 0.860 & 0.865 & 0.964 \\
 \multicolumn{6}{l}{\emph{CelebA}} \\
 ResNet-50 & APS & 0.879 & 0.861 & 0.877 & 0.962 \\
- & THR & 0.877 & 0.838 & 0.870 & 0.962 \\
+ & THR & 0.876 & 0.838 & 0.870 & 0.962 \\
 CLIP & APS & 0.884 & 0.884 & 0.873 & 0.999 \\
  & THR & 0.884 & 0.883 & 0.872 & 0.999 \\
 DINOv2 & APS & 0.878 & 0.878 & 0.869 & 0.999 \\
@@ -125,10 +125,10 @@ CLIP & 0.0061 & 0.0360 & 0.0305 \\
 DINOv2 & 0.0022 & 0.0237 & 0.0205 \\
 ViT-B/16 & 0.0019 & 0.0211 & 0.0322 \\
 \multicolumn{4}{l}{\emph{CelebA}} \\
-ResNet-50 & 0.0010 & 0.0187 & 0.0214 \\
+ResNet-50 & 0.0011 & 0.0187 & 0.0214 \\
 CLIP & 0.0020 & 0.0109 & 0.0074 \\
-DINOv2 & 0.0026 & 0.0142 & 0.0118 \\
-ViT-B/16 & 0.0020 & 0.0139 & 0.0085 \\
+DINOv2 & 0.0025 & 0.0142 & 0.0119 \\
+ViT-B/16 & 0.0019 & 0.0139 & 0.0085 \\
 \botrule
 \end{tabular}
 \end{table}

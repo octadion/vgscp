@@ -10,7 +10,8 @@ What is not tautological is the bound that follows from it, Eq (4): the shortfal
 (1-pi) * D_KS. D_KS is measured from the scores under marginal calibration, before Mondrian is run,
 and nothing forces the inequality to be tight or even close.
 
-  Left panel  -- the bound holds in all eight settings, and is tight to within about 15%.
+  Left panel  -- the bound holds in all eight settings; shortfall/bound is 0.59-0.93 on Waterbirds
+                 and 0.43-0.58 on CelebA, so it is tight on the first and loose on the second.
   Right panel -- D_KS, measured before re-calibrating, predicts how much re-calibrating gains
                  (r = 0.93). That is the sense in which we know what controls the effect.
 """

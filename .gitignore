@@ -70,3 +70,6 @@ _backup_*.zip
 
 # ACML 2025 journal-track accepted papers: reference reading only, not part of this work
 acml-journal-2025-acceptedpapers/
+
+# Records downloaded from Colab before they are installed into results/
+new-results/

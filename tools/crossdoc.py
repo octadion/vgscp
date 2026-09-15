@@ -26,11 +26,11 @@ def norm(t):
 
 # Page count from the author's most recent compile (2026-09-10). Update it after each compile:
 # the letter states this number, and nothing here can measure it.
-PAGES = 35
+PAGES = 36
 
 # (label, regex that must NOT appear anywhere, why)
 SUPERSEDED = [
-    ("rentang set kosong lama", r"0\.926\$?--\$?0\.964", "diganti 0.888-0.962"),
+    ("rentang set kosong lama", r"0\.926\$?--\$?0\.964|0\.888\$?--\$?0\.962", "diganti 0.890-0.954"),
     ("pita Mondrian lama (ERM row)", r"0\.854\$?--\$?0\.886", "diganti 0.856-0.884"),
     ("divergensi ERM lama", r"\$0\.14\$--\$0\.22\$", "diganti 0.05-0.22"),
     ("SD Mondrian lama", r"0\.023\$?--\$?0\.034", "diganti 0.021-0.036"),
@@ -43,11 +43,13 @@ SUPERSEDED = [
     # below has appeared in the letter at some point and been overtaken.
     ("halaman lama", r"\b(?:39|42|45) pages\b", f"sekarang {PAGES} pages"),
     ("'dua kegagalan terbesar'", r"two largest failures are ERM", "ERM lalu GroupDRO-LL"),
-    ("'tujuh dari delapan'", r"seven of eight settings the most accurate", "enam dari delapan"),
-    ("'almost always'", r"almost always the most efficient", "enam dari delapan"),
+    ("'tujuh dari delapan'", r"seven of eight settings the most accurate", "empat dari delapan"),
+    ("'almost always'", r"almost always the most efficient", "empat dari delapan"),
     ("'order of magnitude'", r"by an order of magnitude", "dihapus, tanpa dukungan"),
     ("median gap lama", r"\$0\.001\$--\$0\.013\$", "diganti 0.001-0.012"),
-    ("disparity lama", r"0\.140\$?--\$?0\.608|0\.080\$?--\$?0\.355", "diganti 0.080-0.339 / 0.168-0.608"),
+    # the 0.168-0.608 pair was itself superseded when the set construction was corrected
+    ("disparity lama", r"0\.140\$?--\$?0\.608|0\.080\$?--\$?0\.355|0\.168\$?--\$?0\.608",
+     "diganti 0.080-0.339 (shared) / 0.132-0.323 (per-group)"),
     ("'minority group' untuk CelebA", r"blond male on\s+CelebA", "g3 CelebA memegang 47.5%"),
     # The letter once listed a 30,000-image CelebA training subsample as a third protocol difference
     # behind the gap to published accuracies. An earlier note here said the subsample exists nowhere;
@@ -69,7 +71,7 @@ SUPERSEDED = [
 # (label, value, docs that must agree if they mention the surrounding phrase)
 AGREE = [
     ("pita Mondrian", r"0\.856\$?--\$?0\.884"),
-    ("set kosong", r"0\.888\$?--\$?0\.962"),
+    ("set kosong", r"0\.890\$?--\$?0\.954"),
     ("celah literatur", r"\$12\$--\$26\$"),
     ("hitungan halaman", rf"\b{PAGES} pages\b"),
 ]
